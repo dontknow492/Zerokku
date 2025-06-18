@@ -1,0 +1,2 @@
+icon which will display when theme of software is dark
+

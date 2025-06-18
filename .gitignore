@@ -1,0 +1,104 @@
+# Byte-compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.env/
+.Python
+.venv/
+__pypackages__/
+xtemp.txt
+uv.lock
+
+# IDE-specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Distribution/build directories
+build/
+dist/
+*.egg-info/
+*.egg
+*.eggs
+.installed.cfg
+pip-wheel-metadata/
+
+# Python package cache
+*.egg-info/
+pip-wheel-metadata/
+__pypackages__/
+
+# Logs and databases
+*.log
+*.sqlite3
+*.db
+
+# Test coverage reports
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+htmlcov/
+
+# Pytest, tox, and other testing tools
+.tox/
+.nox/
+.pytest_cache/
+.cache/
+.mypy_cache/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Compiled C extensions
+*.so
+
+# Temporary or backup files
+*.bak
+*.tmp
+*.old
+*.orig
+
+#music
+*.mp3
+*.fav
+*.m4a
+*.webm
+#video
+*.mkv
+#image
+*.jpg
+*.webp
+
+#ytdlp parts
+*.part
+
+
+# Environment variables or secrets
+.env
+*.env
+.env.local
+.env.*.local
+
+# Data & resource directories
+/data/downloads/
+/data/app/*.json
+/data/app/home.json
+
+# Ignore demo and sample files
+demo/
+samples/
+output/
+
+py2exe_build.json

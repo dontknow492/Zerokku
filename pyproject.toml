@@ -1,0 +1,18 @@
+[project]
+name = "zerokku"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "aiosqlite>=0.21.0",
+    "beautifulsoup4>=4.13.4",
+    "loguru>=0.7.3",
+    "playwright>=1.52.0",
+    "pydantic>=2.11.5",
+    "pyside6>=6.9.0",
+    "pyside6-fluent-widgets[full]>=1.8.1",
+    "qasync>=0.27.1",
+    "requests>=2.32.4",
+    "sqlalchemy[asyncio]>=2.0.41",
+    "yt-dlp>=2025.6.9",
+]

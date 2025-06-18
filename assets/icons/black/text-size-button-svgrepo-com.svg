@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" fill="#000000" height="393.461" width="395.31900000000036" version="1.1" id="Capa_1" viewBox="-1.35 -0.42100000000000004 395.31900000000036 393.461" xml:space="preserve" style="--darkreader-inline-fill: var(--darkreader-background-000000, #000000); --darkreader-inline-stroke: var(--darkreader-text-000000, #e8e6e3);" data-darkreader-inline-fill="" stroke="#000000" stroke-width="0.00392619" data-darkreader-inline-stroke="" transform="rotate(0)matrix(-1, 0, 0, 1, 0, 0)">
+
+<g id="SVGRepo_bgCarrier" stroke-width="0"/>
+
+<g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round" stroke="#CCCCCC" stroke-width="4.711428" style="--darkreader-inline-stroke: var(--darkreader-text-cccccc, #c8c3bc);" data-darkreader-inline-stroke=""/>
+
+<g id="SVGRepo_iconCarrier"> <g> <path d="M310.723,0.929H81.896C36.738,0.929,0,37.667,0,82.825v226.969c0,45.158,36.738,81.896,81.896,81.896h228.827 c45.158,0,81.896-36.738,81.896-81.896V82.825C392.619,37.667,355.881,0.929,310.723,0.929z M362.619,309.794 c0,28.616-23.28,51.896-51.896,51.896H81.896C53.28,361.69,30,338.41,30,309.794V82.825c0-28.616,23.28-51.896,51.896-51.896 h228.827c28.616,0,51.896,23.28,51.896,51.896V309.794z"/> <path d="M268.813,113.727H164.581c-8.284,0-15,6.716-15,15s6.716,15,15,15h37.116v120.165c0,8.284,6.716,15,15,15s15-6.716,15-15 V143.727h37.116c8.284,0,15-6.716,15-15S277.097,113.727,268.813,113.727z"/> <path d="M175.725,179.858h-51.918c-8.284,0-15,6.716-15,15s6.716,15,15,15h10.959v52.327c0,8.284,6.716,15,15,15s15-6.716,15-15 v-52.327h10.959c8.284,0,15-6.716,15-15S184.009,179.858,175.725,179.858z"/> </g> </g>
+
+</svg>
