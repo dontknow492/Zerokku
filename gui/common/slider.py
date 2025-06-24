@@ -6,9 +6,11 @@ from PySide6.QtCore import Qt, QPoint, Signal, QPropertyAnimation, Property, QEa
     QSize
 from PySide6.QtGui import QColor, QPainter, QEnterEvent, QMouseEvent
 from PySide6.QtWidgets import QApplication, QWidget, QSlider, QVBoxLayout
-from qfluentwidgets import isDarkTheme
+from qfluentwidgets import isDarkTheme, SimpleCardWidget, setTheme, Theme
 from qfluentwidgets.common.color import autoFallbackThemeColor
 from qfluentwidgets.components.widgets.slider import Slider
+from superqt import QRangeSlider, QLabeledRangeSlider
+
 
 # from PyQt5.QtCore import Qt, QPropertyAnimation, pyqtSignal, pyqtProperty
 # from PyQt5.QtGui import QPainter, QColor, QMouseEvent, QEnterEvent
@@ -113,9 +115,6 @@ class SliderHandle(QWidget):
     #     size = self._radius * 3 + 20 # Slightly larger for aesthetics
     #     print("Size", size)
     #     return QSize(size, size)
-
-
-
 
 class MySlider(Slider):
     def __init__(self, orientation: Qt.Orientation, parent=None):
@@ -248,28 +247,23 @@ class MySlider(Slider):
     def minimumSizeHint(self):
         return self.sizeHint()
 
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    window = QWidget()
-    layout = QVBoxLayout(window)
-    slider = SliderHandle()
-    # slider.radius= 100
-    # slider.radius = 6
-    slider = MySlider(Qt.Orientation.Horizontal)
-    # slider.setRange(0, 300)
-    slider.setGrooveThickness(30)
-    # slider.setHandleRadius(10)
-    # slider.setTickInterval(13)
-    # slider.setGrooveThickness(18)
-    # slider.setTickRadius(5)
-    # slider = SliderHandle()
-    # slider.setFixedSize(200, 200)
-    # slider.radius = 60
-    # slider.repaint()
-    # slider.setMinimumSize(slider.sizeHint())
-    layout.addWidget(slider)
-    layout.setContentsMargins(0, 0, 0, 0)
 
+class RangeSlider(QLabeledRangeSlider):
+    def __init__(self, orientation: Qt.Orientation = Qt.Orientation.Vertical, parent=None):
+        super().__init__(orientation, parent)
+
+        self.barColor = autoFallbackThemeColor(QColor(), QColor())
+
+        self.setStyleSheet("color:black")
+
+if __name__ == '__main__':
+    # setTheme(Theme.DARK)
+    app = QApplication(sys.argv)
+    window = SimpleCardWidget()
+    layout = QVBoxLayout(window)
+    slider = RangeSlider(parent=window)
+
+    layout.addWidget(slider)
 
     window.show()
     app.exec()

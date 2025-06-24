@@ -1,7 +1,10 @@
+import os
+import sys
 from pathlib import Path
-from typing import List, Optional, Iterator, Union
+from typing import List, Optional, Iterator, Union, Tuple
 from PySide6.QtGui import QPixmap, QPixmapCache, QImageReader
 import re
+import ctypes
 
 def get_cache_pixmap(self, path: Path) -> Optional[QPixmap]:
     key = str(path)  # Use string as key
@@ -117,6 +120,58 @@ def trim_time_string(seconds: Union[int, float]) -> str:
     return f"{hours}:{minutes:02}:{remaining_seconds:02}"
 
 
+def resource_path(relative_path):
+    """Return absolute path to resource. Compatible with dev and bundled modes."""
+    if hasattr(sys, "_MEIPASS"):  # PyInstaller
+        base_path = sys._MEIPASS
+    elif getattr(sys, 'frozen', False):  # Nuitka
+        base_path = os.path.dirname(sys.executable)
+    else:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+
+def get_screen_size() -> Tuple[int, int]:
+    user32 = ctypes.windll.user32
+    width = user32.GetSystemMetrics(0)
+    height = user32.GetSystemMetrics(1)
+    return width, height
+
+def get_physical_screen_size() -> Tuple[int, int]:
+    user32 = ctypes.windll.user32
+    gdi32 = ctypes.windll.gdi32
+
+    # Get device context of the entire screen
+    hdc = user32.GetDC(0)
+
+    # Constants for GetDeviceCaps
+    DESKTOPHORZRES = 118
+    DESKTOPVERTRES = 117
+
+    width = gdi32.GetDeviceCaps(hdc, DESKTOPHORZRES)
+    height = gdi32.GetDeviceCaps(hdc, DESKTOPVERTRES)
+
+    # Release the device context
+    user32.ReleaseDC(0, hdc)
+
+    return width, height
+
+
+reference_size = (1463, 823)# your base resolution for design
+
+def get_scale_factor() -> float:
+    current_size = get_screen_size()
+
+    scale_factor_w = current_size[0] / reference_size[0]
+    scale_factor_h = current_size[1] / reference_size[1]
+
+    scale_factor = max(scale_factor_w, scale_factor_h)
+
+    # Clamp scale factor to reasonable bounds if needed
+    scale_factor = max(0.5, min(scale_factor, 3.0))  # for example: min 0.5x, max 3x
+
+    return scale_factor
+
 if __name__ == "__main__":
     try:
         # Test seconds to time string
@@ -130,7 +185,9 @@ if __name__ == "__main__":
         # Test invalid inputs
         # print(seconds_to_time_string(-1))  # Raises ValueError
         # print(time_string_to_seconds("25:60:00"))  # Raises ValueError
-        print(time_string_to_seconds("invalid"))  # Raises ValueError
+        # print(time_string_to_seconds("invalid"))  # Raises ValueError
+
+        print(get_physical_screen_size(), get_screen_size(), get_scale_factor())
 
     except ValueError as e:
         print(f"Error: {e}")

@@ -25,9 +25,6 @@ class Chip(PushButton):
         self._surface_color = surface_color
         self._border_radius = border_radius
         self.setText(text)
-        font = self.font()
-        font.setPixelSize(18)
-        self.setFont(font)
         self.setIcon(icon)
 
 
@@ -46,6 +43,7 @@ class Chip(PushButton):
         super().setIcon(icon)
         self.setIconSize(QSize(18, 18))
 
+
     def _build_style(self):
         left_padding = 8 if not self.icon().isNull() else 16
 
@@ -54,7 +52,7 @@ class Chip(PushButton):
                 background-color: {self._surface_color.name()};
                 color: {self._primary_color.name()};
                 border: 1px solid {self._outline_color.name()};
-                border-radius: 16px;
+                border-radius: {self._border_radius}px;
                 padding: 0px;
             }}
             QPushButton:checked {{
@@ -96,9 +94,12 @@ class OutlinedChip(Chip):
             self,
             text: str,
             icon: Union[FluentIconBase, QIcon, str] = None,
-            primary_color: QColor = QColor("#0078D7")
+            primary_color: QColor = QColor("#0078D7"),
+            border_radius: int = 16,
+            parent = None,
     ):
-        super().__init__(text, icon, primary_color, primary_color.darker(110), primary_color.lighter(180) )
+        super().__init__(text, icon, primary_color, primary_color.darker(110), primary_color.lighter(180),
+                        border_radius=border_radius, parent = parent )
 
 
 if __name__ == "__main__":

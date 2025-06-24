@@ -1,5 +1,6 @@
 import sys
-from typing import Union
+from enum import Enum
+from typing import Union, Optional
 
 from PySide6.QtCore import Property, QSize
 from PySide6.QtGui import QIcon
@@ -317,9 +318,119 @@ class TransparentColoredToolButton(TransparentToolButton):
     color = Property(QColor, getColor, setColor)
 
 
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QLabel
+from PySide6.QtCore import Qt
+
+
+class ButtonState(Enum):
+    UNCHECKED = 0
+    PARTIAL_CHECKED = 1
+    CHECKED = 2
+
+class TriStateButton(PushButton):
+
+
+    def __init__(self, text, icon, parent=None):
+        super().__init__(parent)
+        self.STATES = {
+            ButtonState.UNCHECKED: (text, QColor(Qt.GlobalColor.transparent), icon),
+            ButtonState.PARTIAL_CHECKED: (text, QColor("orange"), icon),
+            ButtonState.CHECKED: (text, QColor("green"), icon),
+        }
+        self.setText(text)
+        self.setIcon(icon)
+        self.state: ButtonState = ButtonState.UNCHECKED
+        self._border_radius = 4
+        self.update_visual()
+        self.clicked.connect(self.next_state)
+
+
+
+    def set_border_radius(self, radius):
+        self._border_radius = radius
+        self.update_visual()
+
+    def get_border_radius(self):
+        return self._border_radius
+
+    borderRadius = Property(int, get_border_radius, set_border_radius)
+
+    def setStateProperty(self, state: ButtonState, text: Optional[str] = None,
+                        background_color: Optional[QColor] = None, icon: Optional = None):
+        state_value = self.STATES.get(state)
+        text = text if text else state_value[0]
+        background_color = background_color if background_color else state_value[1]
+        icon = icon if icon else state_value[2]
+        if icon is None or icon.isNull():
+            icon = self.icon()
+
+        state_value = (text, background_color, icon)
+        self.STATES[state] = state_value
+
+
+    def next_state(self):
+        if self.state == ButtonState.PARTIAL_CHECKED:
+            self.state = ButtonState.CHECKED
+        elif self.state == ButtonState.CHECKED:
+            self.state = ButtonState.UNCHECKED
+        else:
+            self.state = ButtonState.PARTIAL_CHECKED
+        self.update_visual()
+
+    def update_visual(self):
+        state_values = self.STATES[self.state]
+
+        super().setText(state_values[0])
+        if not state_values[2]:
+            self.setIcon(state_values[2])
+        color = state_values[1]
+        # if color and color.name() != QColor().name():
+        if self.state == ButtonState.UNCHECKED:
+            style = f"PushButton {{background-color: transparent; border-radius: {self.borderRadius}}};"
+        else:
+            style = f"PushButton {{background-color: {state_values[1].name()}; border-radius: {self.borderRadius}}};"
+        setCustomStyleSheet(self, style, style)
+
+    def get_state(self):
+        return self.state
+
+    def set_state(self, state: ButtonState):
+        self.state = state
+        self.update_visual()
+
+
+class MainWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Tri-State PushButton Example")
+        layout = QVBoxLayout()
+
+        self.button = TriStateButton("", icon = FluentIcon.INFO)
+        self.button.borderRadius = 16
+        layout.addWidget(self.button)
+
+        self.label = QLabel("Current State: Unchecked")
+        layout.addWidget(self.label)
+
+        # self.button.clicked.connect(self.update_label)
+        self.setLayout(layout)
+
+    # def update_label(self):
+    #     states = ["Unchecked", "Partially Checked", "Checked"]
+    #     self.label.setText(f"Current State: {states[self.button.get_state()]}")
+
+
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    button = TransparentColoredToolButton(FluentIcon.TAG, QColor('blue'))
-    button.show()
-    button.radius = 16
+    app = QApplication([])
+    window = MainWindow()
+    window.show()
     app.exec()
+
+
+
+# if __name__ == "__main__":
+#     app = QApplication(sys.argv)
+#     button = TransparentColoredToolButton(FluentIcon.TAG, QColor('blue'))
+#     button.show()
+#     button.radius = 16
+#     app.exec()

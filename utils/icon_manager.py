@@ -1,7 +1,14 @@
-from qfluentwidgets import FluentIconBase, Theme, getIconColor, ToolButton
+import os
+import sys
+
+from PySide6.QtGui import QIcon
+from qfluentwidgets import FluentIconBase, Theme, getIconColor, ToolButton, FluentFontIconBase
 from PySide6.QtWidgets import QApplication
 from pathlib import Path
 from enum import Enum
+from utils.scripts import resource_path
+
+
 
 class IconManager(FluentIconBase, Enum):
     BOT = "bot"
@@ -70,3 +77,21 @@ class IconManager(FluentIconBase, Enum):
     def path(self, theme=Theme.AUTO):
         # getIconColor() return "white" or "black" according to current theme
         return f'assets/icons/{getIconColor(theme)}/{self.value}-svgrepo-com.svg'
+
+class FontAwesomeRegularIcon(FluentFontIconBase):
+    DIR = "assets\\otfs"
+    NAME = "Font Awesome 6 Free-Regular-400.otf"
+    def path(self, theme=Theme.AUTO):
+        return resource_path(f"{self.DIR}\\{self.NAME}")
+
+class FontAwesomeSolidIcon(FluentFontIconBase):
+    DIR = "assets\\otfs"
+    NAME = "Font Awesome 6 Free-Solid-900.otf"
+    def path(self, theme=Theme.AUTO):
+        return resource_path(f"{self.DIR}\\{self.NAME}")
+
+class FontAwesomeBrandIcon(FluentFontIconBase):
+    DIR = "assets\\otfs"
+    NAME = "Font Awesome 6 Brands-Regular-400.otf"
+    def path(self, theme=Theme.AUTO):
+        return resource_path(f"{self.DIR}\\{self.NAME}")

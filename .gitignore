@@ -101,6 +101,8 @@ demo/
 samples/
 output/
 
+AnilistPython/
+
 py2exe_build.json
 #libmpv-2.dll
 !/libmpv-2.7z
