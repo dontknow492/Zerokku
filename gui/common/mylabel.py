@@ -167,7 +167,7 @@ class MultiLineElideLabel(MyLabel):
     def __init__(self, text='', max_lines=3, font_size=14, weight=QFont.Weight.Normal, elide: bool = True, parent=None):
         super().__init__(text, font_size, weight, parent)
         self.isElide = elide
-        self.max_lines = max_lines
+        self._max_lines = max_lines
         self.setWordWrap(True)
         self.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.full_text = text
@@ -182,7 +182,7 @@ class MultiLineElideLabel(MyLabel):
             super().setText(self.full_text)
             return
         metrics = QFontMetrics(self.font())
-        elide = metrics.elidedText(self.full_text, Qt.ElideRight, (self.width()- 18) * self.max_lines - self.width() / 5)
+        elide = metrics.elidedText(self.full_text, Qt.ElideRight, (self.width()- 18) * self._max_lines - self.width() / 5)
         if metrics.width(elide) > self.width():
             self.setMinimumHeight(metrics.height() * 2)
         else:
@@ -199,6 +199,15 @@ class MultiLineElideLabel(MyLabel):
         return self.isElide
 
     elide = Property(bool, get_elide, set_elide)
+
+    def set_max_lines(self, max_lines: int):
+        self._max_lines = max_lines
+        self._elide_time()
+
+    def get_max_lines(self):
+        return self._max_lines
+
+    max_lines = Property(int, get_max_lines, set_max_lines)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

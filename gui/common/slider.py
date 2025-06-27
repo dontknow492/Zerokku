@@ -248,7 +248,7 @@ class MySlider(Slider):
         return self.sizeHint()
 
 
-class RangeSlider(QLabeledRangeSlider):
+class RangeSlider(QRangeSlider):
     def __init__(self, orientation: Qt.Orientation = Qt.Orientation.Vertical, parent=None):
         super().__init__(orientation, parent)
 
@@ -260,6 +260,7 @@ if __name__ == '__main__':
     # setTheme(Theme.DARK)
     app = QApplication(sys.argv)
     window = SimpleCardWidget()
+    window.setFixedWidth(50)
     layout = QVBoxLayout(window)
     slider = RangeSlider(parent=window)
 

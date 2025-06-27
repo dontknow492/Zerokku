@@ -1,18 +1,22 @@
+import datetime
+
 import sys
 from enum import Enum
 from pathlib import Path
 from typing import List, Union
 
-from PySide6.QtCore import Qt, QSize, QPropertyAnimation
+from PySide6.QtCore import Qt, QSize, QPropertyAnimation, QObject, QRect
 from PySide6.QtGui import QColor, QFont, QResizeEvent, QImage, QPixmap
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout, QFrame, QScrollArea, QWidget, \
-    QGraphicsOpacityEffect
+    QGraphicsOpacityEffect, QLabel, QSizePolicy
 from qfluentwidgets import SubtitleLabel, BodyLabel, FlowLayout, ScrollArea, TransparentToolButton, \
     setTheme, Theme, CardWidget, setCustomStyleSheet, SimpleCardWidget
 
-from gui.common import WaitingLabel, OutlinedChip, MyLabel, SkimmerWidget, SkeletonMode
+from gui.common import (WaitingLabel, OutlinedChip, MyLabel, SkimmerWidget, SkeletonMode, KineticScrollArea,
+                        MultiLineElideLabel)
 from utils import FontAwesomeRegularIcon, get_scale_factor
 
+from AnillistPython import AnilistMedia, AnilistScore, AnilistMediaInfo, MediaType, MediaStatus, AnilistTitle
 
 class MediaVariants(Enum):
     PORTRAIT = 0
@@ -45,7 +49,8 @@ class MediaCard(CardWidget):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def _create_widgets(self):
-        self.title_label = MyLabel("Solo Leveling", 17, QFont.Weight.DemiBold, parent=self)
+        self.title_label = MultiLineElideLabel("Solo Leveling", 1, 17, QFont.Weight.DemiBold, parent=self)
+        # self.title_label.setStyleSheet("background-color:rgb(240, 240, 240);")
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.title_label.setContentsMargins(4, 0, 0, 0)
         self.title_label.setText("Solo Leveling")
@@ -62,6 +67,9 @@ class MediaCard(CardWidget):
         self.end_year = 2024
         self.time_label = MyLabel(f"{self.start_year}-{self.end_year}", self.BODY_FONT_SIZE, self.STRONG_BODY_FONT_WEIGHT)
         self.status_label = MyLabel("Releasing", self.BODY_FONT_SIZE, self.STRONG_BODY_FONT_WEIGHT)
+
+        self.release_status_label = MyLabel("Release", self.Title_FONT_SIZE, self.TILE_FONT_WEIGHT)
+        self.release_status_label.setText(f"{self.status_label.text()} {self.start_year}-{self.end_year}")
 
         self.rating_widget = QFrame()
         layout = QHBoxLayout(self.rating_widget)
@@ -119,15 +127,17 @@ class MediaCard(CardWidget):
         self.genre_container.setParent(None)
         self.media_type.setParent(None)
         self.media_episode_chapters.setParent(None)
+        self.release_status_label.setParent(None)
 
     def set_variant(self, variant: MediaVariants):
-        """Switch the card to a new variant and update the UI."""
+        """Switch the card to a new previous_variant and update the UI."""
         if self.variant != variant:
             self.variant = variant
             self.setup_ui()
 
     def create_vbox(self, *widgets, alignments=None, spacing=0):
         vbox = QVBoxLayout()
+        vbox.addStretch()
         vbox.setSpacing(spacing)
         for i, widget in enumerate(widgets):
             alignment = alignments[i] if alignments and i < len(alignments) else None
@@ -135,6 +145,7 @@ class MediaCard(CardWidget):
                 vbox.addWidget(widget, alignment=alignment)
             else:
                 vbox.addWidget(widget)
+        vbox.addStretch()
         return vbox
 
     def create_scrollable_area(self, widget: QWidget) -> QScrollArea:
@@ -146,12 +157,6 @@ class MediaCard(CardWidget):
         return scroll
 
     def _init_detailed_layout(self):
-        if hasattr(self, "release_status_label"):
-            self.release_status_label.setText(f"{self.status_label.text()} {self.start_year}-{self.end_year}")
-        else:
-            self.release_status_label = MyLabel(f"{self.status_label.text()} {self.start_year}-{self.end_year}", 17, QFont.Weight.DemiBold)
-            self.release_status_label.setFixedHeight(20)
-
         layout = QHBoxLayout()
         layout.setContentsMargins(0, 1, 1, 1)
         layout.setSpacing(0)
@@ -159,6 +164,10 @@ class MediaCard(CardWidget):
         radius = self.borderRadius
         self.cover_label.setFixedSize(self.COVER_SIZE)
         self.cover_label.setBorderRadius(radius, 0, radius, 0)
+        self.title_label.max_lines = 2
+        # self.title_label.setStyleSheet("background: red;")
+        self.release_status_label.setText(f"{self.status_label.text()} • {self.start_year}-{self.end_year}")
+        # }")
 
         main_vlayout = QVBoxLayout()
         content_widget = QFrame()
@@ -198,12 +207,15 @@ class MediaCard(CardWidget):
         layout.addWidget(self.cover_label)
         layout.addLayout(main_vlayout)
 
-        self.title_label.adjustSize()
-        self.title_label.setFixedWidth(self.cover_label.width())
-        self.title_label.setParent(self.cover_label)
-        self.title_label.move(0, self.cover_label.height() - self.title_label.height() - 9)
-        self.setLayout(layout)
 
+        self.title_label.setParent(self.cover_label)
+        self.title_label.setMinimumWidth(self.cover_label.width())
+        self.title_label.adjustSize()
+        self.title_label.move(0, self.cover_label.height() - self.title_label.height()-9)
+        # self.title_label.raise_()
+
+
+        self.setLayout(layout)
         self.setMaximumHeight(self.cover_label.height())
         self._min_sizeHint.setWidth(self.cover_label.width() * 2)
         self.setMaximumWidth(10000)
@@ -211,17 +223,24 @@ class MediaCard(CardWidget):
         # if isDarkTheme():
         self.genre_container.setStyleSheet(f"background: gray; border-bottom-right-radius: {self.borderRadius}px;")
 
+        self.adjustSize()
+
     def _init_landscape_layout(self):
         self.cover_label.setFixedSize(self.MINI_COVER_SIZE)
         self.cover_label.setBorderRadius(4, 4, 4, 4)
+
+        self.title_label.max_lines = 2
+        self.genre_layout.setContentsMargins(0, 0, 0, 0)
+        # self.title_label.setParent(None)
+
+
         main_layout = QHBoxLayout()
         main_layout.setContentsMargins(self.DEFAULT_MARGIN, self.DEFAULT_MARGIN, self.DEFAULT_MARGIN,
                                        self.DEFAULT_MARGIN)
         main_layout.setSpacing(10)
 
-
         layout_1 = self.create_vbox(self.title_label, self.genre_container,
-                                    alignments=[Qt.AlignBottom, None])
+                                    alignments=[Qt.AlignBottom, None], spacing=4)
 
         layout_2 = self.create_vbox(self.rating_widget, self.users_label,
                                     alignments=[Qt.AlignBottom | Qt.AlignHCenter , Qt.AlignTop | Qt.AlignHCenter ])
@@ -247,10 +266,13 @@ class MediaCard(CardWidget):
 
         self.genre_container.setStyleSheet("background: transparent;")
 
+        # self.adjustSize()
+
     def _init_minimal_layout(self):
         radius = self.borderRadius
         self.cover_label.setFixedSize(self.COVER_SIZE)
         self.cover_label.setBorderRadius(radius, radius, 0, 0)
+        self.title_label.max_lines = 1
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 1, 0, self.DEFAULT_MARGIN)
         layout.addWidget(self.cover_label, stretch=1)
@@ -260,12 +282,72 @@ class MediaCard(CardWidget):
         self.title_label.adjustSize()
         self.setMaximumSize(self.cover_label.width(), self.cover_label.height() + self.title_label.height() + 15)
 
+        self.adjustSize()
+
+    def setData(self, data: AnilistMedia):
+        self.setTitle(data.title.romaji or "Unknown Title")
+        self.description_label.setText(data.description or "No description available.")
+
+        # Set rating and user count
+        average_score = data.score.average_score or 0
+        self.setRating(average_score)
+
+        favourites = data.score.favourites or 0
+        self.setUsers(favourites)
+
+        # Set status
+        status_value = data.info.status
+        self.setStatus(status_value)
+
+        # Set airing/publishing years
+        start_year = data.startDate.year if data.startDate else None
+        end_year = data.endDate.year if data.endDate else None
+        self.setYear(start_year, end_year)
+
+        # Set media type and episode/chapter count
+        media_type = data.media_type
+        self.setMediaType(media_type)
+
+        count = 0
+        count_label = "unknown"
+        if media_type == MediaType.MANGA:
+            count = data.chapters or 0
+            count_label = "chapters"
+        elif media_type == MediaType.ANIME:
+            count = data.episodes or 0
+            count_label = "episodes"
+        self.setMediaEpisodeChapters(count, count_label)
+
+        # Set genres
+        dominant_color = data.coverImage.color
+        dominant_color = QColor('red')
+        if dominant_color:
+            dominant_color = QColor(dominant_color)
+        self.setGenre(data.genres or [], dominant_color)
+
+        # Debug info
+        # print(f"{count} {count_label}, {favourites} users, {average_score} score, status: {status_value}")
+
     def setTitle(self, title, hover_color: QColor = None):
+        if title is None:
+            return
         self.title_label.setText(title)
+        if self.variant == MediaVariants.WIDE_LANDSCAPE:
+            self.title_label.setParent(self.cover_label)
+            self.title_label.setMinimumWidth(self.cover_label.width())
+            self.title_label.adjustSize()
+            self.title_label.move(0, self.cover_label.height() - self.title_label.height() - 9)
         # qss = f"SubtitleLabel {{ color: gray; }} SubtitleLabel:hover {{ color: {hover_color.name()}; }}"
         # setCustomStyleSheet(self.title_label, qss, qss)
 
+    def setDescription(self, description: str):
+        if description is None:
+            return
+        self.description_label.setText(description)
+
     def setRating(self, rating: int):
+        if rating is None:
+            return
         self.rating_label.setText(f"{rating}%")
 
         if rating >= 75:
@@ -280,26 +362,44 @@ class MediaCard(CardWidget):
         self.rating_icon.setIcon(FontAwesomeRegularIcon(str_icon).colored(color, color))
 
     def setUsers(self, users: int):
+        if users is None:
+            return
         self.users_label.setText(f"{users} users")
 
-    def setDescription(self, description: str):
-        self.description_label.setText(description)
 
-    def setStatus(self, status: str):
+
+    def setStatus(self, status: Union[str, MediaStatus]):
+        if status is None:
+            return
+        if isinstance(status, MediaStatus):
+            if status == MediaStatus.RELEASING:
+                status = "Airing"
+            elif status == MediaStatus.FINISHED:
+                status = "Completed"
+            else:
+                status = status.value
         self.status_label.setText(status)
 
     def setYear(self, start_year: int, end_year: int):
+        if start_year is None or end_year is None:
+            return
         self.start_year = start_year
         self.end_year = end_year
         self.time_label.setText(f"{start_year}-{end_year}")
 
-    def setMediaType(self, media_type: str):
-        self.media_type.setText(media_type)
+    def setMediaType(self, media_type: MediaType):
+        if media_type is None:
+            return
+        self.media_type.setText(media_type.value)
 
-    def setMediaEpisodeChapters(self, value: int, media_type: str):
-        self.media_episode_chapters.setText(f"{value} {media_type}")
+    def setMediaEpisodeChapters(self, value: int, value_type: str):
+        if value_type is None or value is None:
+            return
+        self.media_episode_chapters.setText(f"{value} {value_type}")
 
-    def setCover(self, cover: Path):
+    def setCover(self, cover: Union[Path, QPixmap]):
+        if cover is None:
+            return
         self.cover_label.setImage(cover)
         if self.variant == MediaVariants.LANDSCAPE:
             self.cover_label.setScaledSize(self.MINI_COVER_SIZE)
@@ -307,8 +407,14 @@ class MediaCard(CardWidget):
             self.cover_label.setScaledSize(self.COVER_SIZE)
 
     def setGenre(self, genres: List[str], color: QColor = QColor("red")):
+        if genres is None or len(genres) == 0:
+            return
         self.genres = genres
         self._create_genre(color)
+
+    def setProgress(self, progress: float):
+        if progress is None:
+            return
 
     def minimumSizeHint(self, /):
         return self._min_sizeHint
@@ -367,57 +473,52 @@ class MediaRelationCard(CardWidget):
 
         self.overlay_widget.raise_()
 
+
+
+
 # Example usage
-if __name__ == '__main__':
+if __name__ == '__main__1':
     app = QApplication(sys.argv)
     ex = MediaRelationCard()
     ex.show()
     sys.exit(app.exec())
 
-if __name__ == "__main__1":
+if __name__ == "__main__":
     import os
+    import json
+    import time
+    from AnillistPython import parse_searched_media
     scale_factor = get_scale_factor()
     os.environ["QT_SCALE_FACTOR"] = f"{scale_factor}"
     setTheme(Theme.DARK)
     app = QApplication(sys.argv)
 
-    print(app.primaryScreen().availableGeometry())
+    scroll = KineticScrollArea()
+    widget = QWidget()
+    layout = QVBoxLayout(widget)
+    scroll.setWidget(widget)
+    scroll.setWidgetResizable(True)
 
-    color = QColor("red")
+    start = time.time()
+    with open(r"D:\Program\Zerokku\demo\data.json", "r", encoding="utf-8")  as data:
+        result = json.load(data)
+    print(f"{time.time() - start} seconds")
+    start = time.time()
+    datas = parse_searched_media(result, None)
+    print(f"{time.time() - start} seconds")
+    start = time.time()
+    pixmap = QPixmap(r"D:\Program\Zerokku\demo\cover.jpg")
 
-    title = "Thumbs Up, Level Up"
-    rating = 54
-    start_year = 2022
-    end_year = 2025
-    media_type = "Manga"
-    volumes = 26
-    volume_type = "Chapter"
-    description = "Eom Ji-Cheok was just an underappreciated hunter's assistant until an odd dream and a simple thumbs up triggered his awakening as a hunter and hot GodTube influencer. Ji-Cheok doesn't earn points by killing monsters though. Instead, he must do good deeds and gain the approval of others. So when a heroic video of him goes viral and top companies start wooing him with contracts, it seems like the sky's the limit. But will fame be a more dangerous game than our rising star expected...? "
-    cover = Path(r"D:\Program\Zerokku\demo\cover.jpg")
-    genres = ["action", "adventure", "fantasy"]
+    for data in datas:
+        card = MediaCard(variant=MediaVariants.LANDSCAPE)
+        card.setData(data)
+        card.setCover(pixmap)
+        layout.addWidget(card)
+        card.set_variant(MediaVariants.PORTRAIT)
+        card.set_variant(MediaVariants.LANDSCAPE)
 
-    card = MediaCard(MediaVariants.WIDE_LANDSCAPE)
-    #
-    card.setTitle(title, color)
-    card.setRating(rating)
-    card.setDescription(description)
-    card.setMediaType(media_type)
-    card.setMediaEpisodeChapters(volumes, volume_type)
-    card.setYear(start_year, end_year)
-    card.setCover(cover)
-    card.setGenre(genres)
-    card.show()
+    print(f"{time.time() - start} seconds")
 
-    # import sys
-    # from PyQt5.QtCore import Qt
-    # from PyQt5.QtWidgets import QApplication
 
-    # card.showSkeleton()
-
-    # card.setBackgroundColor(QColor(255, 0, 0))
-
-    # QTimer.singleShot(0, lambda: card.set_variant(MediaVariants.LANDSCAPE))
-    # QTimer.singleShot(3000, lambda: card.set_variant(MediaVariants.WIDE_LANDSCAPE))
-    # QTimer.singleShot(9000, lambda: card.set_variant(MediaVariants.PORTRAIT))
-    card.setMinimumWidth(800)
+    scroll.show()
     sys.exit(app.exec())

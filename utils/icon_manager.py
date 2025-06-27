@@ -74,6 +74,9 @@ class IconManager(FluentIconBase, Enum):
     MORE_VERTICAL = "more-vertical"
     SUBTITLE = "subtitle"
     UNLOCK = "lock-keyhole-unlocked"
+    GRID = "grid"
+    GRID_3X3 = "grid-1525"
+    STACK = "stack"
     def path(self, theme=Theme.AUTO):
         # getIconColor() return "white" or "black" according to current theme
         return f'assets/icons/{getIconColor(theme)}/{self.value}-svgrepo-com.svg'

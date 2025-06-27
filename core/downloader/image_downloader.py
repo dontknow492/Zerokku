@@ -182,7 +182,7 @@ class NetworkClient(QObject): # url, QPixmap
         :param url: The image URL.
         """
         retry_delay = 1  # Initial delay in seconds
-        logger.info("Starting download for URL: %s", url)
+        logger.info(f"Starting download for URL: url")
 
         for attempt in range(self.max_retries):
             try:
@@ -223,7 +223,7 @@ class NetworkClient(QObject): # url, QPixmap
                 raise NetworkError(f"Connection failed after {self.max_retries} retries") from e
 
             except Exception as e:
-                logger.exception(f"Unhandled error during download of {url}")
+                logger.exception(f"Unhandled error during download of {url}, {str(e)}")
                 raise
 
     @staticmethod
@@ -288,6 +288,7 @@ class ImageDownloader(QObject):
                  timeout: int = 30,
                  parent=None):
         super().__init__(parent)
+        logger.info(f"Initializing ImageDownloader with max_concurrent={max_concurrent} ")
         self.cache = CacheManager(cache_dir, max_cache_mb, cache_expiry)
         self.network = NetworkClient(max_retries, timeout)
         self.network.downloadProgress.connect(self.downloadProgress.emit)

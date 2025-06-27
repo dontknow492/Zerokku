@@ -1,3 +1,4 @@
+import datetime
 import os
 import sys
 import json
@@ -7,7 +8,7 @@ from typing import Optional, List, Tuple, Set
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont, Qt
 
-from enums import MediaFormat, MediaSeason, MediaStatus, MediaSource, MediaSort, MediaType, MediaGenre
+from AnillistPython import MediaFormat, MediaSeason, MediaStatus, MediaSource, MediaSort, MediaType, MediaGenre
 
 from PySide6.QtWidgets import QWidget, QApplication, QHBoxLayout, QVBoxLayout, QGridLayout
 from qfluentwidgets import Slider, SearchLineEdit, ComboBox, CheckableMenu, ToolButton, FluentIcon, PrimaryPushButton, \
@@ -16,6 +17,7 @@ from qfluentwidgets import Slider, SearchLineEdit, ComboBox, CheckableMenu, Tool
 from superqt import QRangeSlider, QLabeledRangeSlider
 
 from gui.common import MyLabel, EnumComboBox, TriStateButton, KineticScrollArea
+from gui.components import SpinCard
 
 
 class FilterContainer(QWidget):
@@ -244,13 +246,34 @@ class AdvanceFilter(FlyoutViewBase):
         self.year_filter.setPlaceholderText("Year")
         self.year_box = FilterContainer("Year", self.year_filter, 18, parent = self)
 
+        year_range = (1970, datetime.datetime.now().year + 1)
+        episode_range = (1, 2000)
+        duration_range = (1, 170)
 
-        self.episode_slider = QLabeledRangeSlider(Qt.Orientation.Horizontal, parent = self)
+        self.min_year_slider = SpinCard(icon = FluentIcon.CALENDAR, title="Minimum Year")
+        self.max_year_slider = SpinCard(icon = FluentIcon.CALENDAR, title="Maximum Year")
+        self.max_year_slider.setRange(*year_range)
+        self.max_year_slider.setValue(year_range[1])
+        self.min_year_slider.setRange(*year_range)
+
+
+        self.min_episode_slider = SpinCard(icon = None, title="Minimum Episode")
+        self.max_episode_slider = SpinCard(icon = None, title="Maximum Episode")
+        self.max_episode_slider.setRange(*episode_range)
+        self.max_episode_slider.setValue(episode_range[1])
+        self.min_episode_slider.setRange(*episode_range)
+
+        self.min_duration_slider = SpinCard(icon = FluentIcon.STOP_WATCH, title="Minimum Duration")
+        self.max_duration_slider = SpinCard(icon = FluentIcon.STOP_WATCH, title="Maximum Duration")
+        self.max_duration_slider.setRange(*duration_range)
+        self.max_duration_slider.setValue(duration_range[1])
+        self.min_duration_slider.setRange(*duration_range)
+
         # self.episode_slider.set
 
 
-        # self.tag_button = MyLabel("Advance Genre and Tags Filter", 18, QFont.Weight.DemiBold, self)
-        # self.tags_filter = TagSelector(self)
+        self.tag_button = MyLabel("Advance Genre and Tags Filter", 18, QFont.Weight.DemiBold, self)
+        self.tags_filter = TagSelector(self)
 
 
 
@@ -264,10 +287,18 @@ class AdvanceFilter(FlyoutViewBase):
         layout.addWidget(self.season_box, 0, 3)
         layout.addWidget(self.year_box, 0, 4)
 
-        layout.addWidget(self.episode_slider, 1, 1)
+        layout.addWidget(self.min_year_slider, 1, 1, 1, 2, Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(self.max_year_slider, 1, 3, 1, 2, Qt.AlignmentFlag.AlignTop)
 
-        # layout.addWidget(self.tag_button, 1, 1, 1, 4)
-        # layout.addWidget(self.tags_filter, 2, 1, 1, 4)
+        layout.addWidget(self.min_episode_slider, 2, 1, 1, 2, Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(self.max_episode_slider, 2, 3, 1, 2, Qt.AlignmentFlag.AlignTop)
+
+
+        layout.addWidget(self.min_duration_slider, 3, 1, 1, 2, Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(self.max_duration_slider, 3, 3, 1, 2, Qt.AlignmentFlag.AlignTop)
+
+        layout.addWidget(self.tag_button, 4, 1, 1, 4)
+        layout.addWidget(self.tags_filter, 5, 1, 1, 4)
 
         layout.setRowStretch(2, 1)
 
@@ -277,7 +308,7 @@ class AdvanceFilter(FlyoutViewBase):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    main = AdvanceFilter()
-    # main = SearchBar()
+    # main = AdvanceFilter()
+    main = SearchBar()
     main.show()
     sys.exit(app.exec())

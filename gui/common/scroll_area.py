@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QPoint
 from PySide6.QtWidgets import QScroller, QScrollArea, QScrollerProperties
 
 
@@ -21,3 +21,6 @@ class KineticScrollArea(QScrollArea):
     @property
     def scroller(self)->QScroller:
         return self._scroller
+
+    def scrollTo(self, pos: QPoint, duration: int = 0):
+        self.scroller.scrollTo(pos, duration)

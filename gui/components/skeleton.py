@@ -24,7 +24,7 @@ class MediaCardSkeletonMinimal(QWidget):
         self.cover_skeleton = SkimmerWidget(self)
         self.cover_skeleton.setFixedSize(self.cover_size)
         self.title_skeleton = SkimmerWidget(self)
-        self.title_skeleton.setMaximumHeight(22)
+        self.title_skeleton.setFixedHeight(22)
         self.title_skeleton.setMaximumWidth(self.cover_size.width())
         layout.addWidget(self.cover_skeleton, stretch=1)
         layout.addWidget(self.title_skeleton)
@@ -49,7 +49,7 @@ class MediaCardSkeletonLandscape(QWidget):
 
     def _init_ui(self):
         layout = QHBoxLayout()
-        # layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(9, 0, 9, 0)
 
         self.cover_skeleton = SkimmerWidget(self)
         self.cover_skeleton.setFixedSize(self.cover_size)
@@ -327,11 +327,11 @@ if __name__ == '__main__':
     widget.setLayout(layout)
 
     # skeleton = MediaCardSkeletonDetailed()
-    # skeleton = MediaCardSkeletonMinimal()
+    skeleton = MediaCardSkeletonMinimal()
     # skeleton = MediaCardSkeletonLandscape()
     # skeleton = HeroContainerSkeleton()
     # skeleton = MediaCardRelationSkeleton()
-    skeleton = ReviewSkeleton()
+    # skeleton = ReviewSkeleton()
 
     skeleton.start()
 

@@ -8,7 +8,6 @@ from qasync import QEventLoop
 from gui.common import KineticScrollArea
 from gui.interface import HomeInterface
 
-from AnillistPython import MediaQueryBuilder
 
 class MainWindow(FluentWindow):
     def __init__(self):

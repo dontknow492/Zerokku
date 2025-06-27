@@ -8,10 +8,8 @@ from qfluentwidgets import PushButton, Pivot, PivotItem, SegmentedWidget, Transp
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QHBoxLayout, QWidget, QGridLayout, QFormLayout, QSpacerItem, \
     QSizePolicy
 from gui.common import KineticScrollArea, MyLabel, Chip, OutlinedChip, WaitingLabel, MyImageLabel
-from gui.components import MediaCardRelationSkeleton, MediaCard, MediaRelationCard
+from gui.components import MediaCardRelationSkeleton, MediaCard, MediaRelationCard, ViewMoreContainer
 from gui.components.skeleton import ReviewSkeleton
-
-from home import Container
 
 class OverviewPage(QWidget):
     def __init__(self, parent=None):
@@ -31,7 +29,7 @@ class OverviewPage(QWidget):
         self.rating_label = MyLabel("this rating", self.content_font_size, self.content_font_weight, parent = self)
         self.duration_label = MyLabel("this duration", self.content_font_size, self.content_font_weight, parent = self)
 
-        self.recommendation_container = Container("Recommendation for you", self)
+        self.recommendation_container = ViewMoreContainer("Recommendation for you", self)
         self.recommendation_container.setMinimumHeight(self.recommendation_container_height)
 
         self._init_ui()

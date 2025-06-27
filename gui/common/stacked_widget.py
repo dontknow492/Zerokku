@@ -1,7 +1,18 @@
-from PySide6.QtWidgets import QStackedWidget, QWidget
-from PySide6.QtCore import QPropertyAnimation, QPoint, QAbstractAnimation, QEasingCurve, Signal
-from qasync import QApplication
+from enum import Enum, auto
 
+from PySide6.QtWidgets import QStackedWidget, QWidget, QGraphicsOpacityEffect, QApplication
+from PySide6.QtCore import QPropertyAnimation, QPoint, QAbstractAnimation, QEasingCurve, Signal, QParallelAnimationGroup
+
+# from gui.common import
+# from qasync import
+
+from gui.common.animation import AnimationManager, AnimationDirection, AnimationType
+
+# class AnimationDirection(Enum):
+#     LEFT = auto()
+#     RIGHT = auto()
+#     TOP = auto()
+#     BOTTOM = auto()
 
 class SlideAniInfo:
     """Pop up animation info"""
@@ -11,6 +22,39 @@ class SlideAniInfo:
         self.deltaX = deltaX
         self.deltaY = deltaY
         self.ani = ani
+
+
+class AniStackedWidget(QStackedWidget):
+    def __init__(self, parent: QWidget = None):
+        super().__init__(parent)
+        self.animation_manager = AnimationManager()
+
+    def addWidget(self, widget: QWidget):
+        super().addWidget(widget)
+
+    def setCurrentWidget(self, widget: QWidget):
+        self.setCurrentIndex(self.indexOf(widget))
+
+    def setCurrentIndex(self, index):
+        pre_index = self.indexOf(self.currentWidget())
+        des_index = index
+        super().setCurrentIndex(des_index)
+        self.slide(pre_index, des_index)
+
+    # def setAnimation(self):
+
+    def slide(self, from_index: int, to_index: int):
+        widget = self.currentWidget()
+        if from_index > to_index:
+            direction = AnimationDirection.LEFT
+        elif from_index < to_index:
+            direction = AnimationDirection.RIGHT
+        elif from_index == to_index:
+            direction = AnimationDirection.BOTTOM
+        else:
+            direction = AnimationDirection.TOP
+        self.animation_manager.slide_in(widget, direction=direction)
+
 
 
 class SlideAniStackedWidget(QStackedWidget):
@@ -155,10 +199,10 @@ if __name__ == '__main__':
     import sys
     from PySide6.QtWidgets import QLabel, QPushButton
     app = QApplication(sys.argv)
-    window = SlideAniStackedWidget()
+    window = AniStackedWidget()
     for x in range(10):
         button = QPushButton(str(x))
-        button.clicked.connect(lambda : window.setCurrentIndex(window.currentIndex()+1, slide_direction="alternate"))
+        button.clicked.connect(lambda : window.setCurrentIndex(window.currentIndex()+1))
         window.addWidget(button)
     window.show()
     app.exec()
