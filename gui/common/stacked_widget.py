@@ -32,18 +32,18 @@ class AniStackedWidget(QStackedWidget):
     def addWidget(self, widget: QWidget):
         super().addWidget(widget)
 
-    def setCurrentWidget(self, widget: QWidget):
-        self.setCurrentIndex(self.indexOf(widget))
+    def setCurrentWidget(self, widget: QWidget, duration: int = 300, distance: int = 300):
+        self.setCurrentIndex(self.indexOf(widget), duration, distance)
 
-    def setCurrentIndex(self, index):
+    def setCurrentIndex(self, index, duration: int = 300, distance: int = 300):
         pre_index = self.indexOf(self.currentWidget())
         des_index = index
         super().setCurrentIndex(des_index)
-        self.slide(pre_index, des_index)
+        self.slide(pre_index, des_index, duration, distance)
 
     # def setAnimation(self):
 
-    def slide(self, from_index: int, to_index: int):
+    def slide(self, from_index: int, to_index: int, duration: int = 3, distance: int = 300):
         widget = self.currentWidget()
         if from_index > to_index:
             direction = AnimationDirection.LEFT
@@ -53,7 +53,7 @@ class AniStackedWidget(QStackedWidget):
             direction = AnimationDirection.BOTTOM
         else:
             direction = AnimationDirection.TOP
-        self.animation_manager.slide_in(widget, direction=direction)
+        self.animation_manager.slide_in(widget, direction=direction, distance=distance, duration=duration)
 
 
 

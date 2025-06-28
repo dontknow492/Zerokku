@@ -5,3 +5,4 @@ from .skeleton import MediaCardSkeletonLandscape, MediaCardSkeletonDetailed, Med
     HeroContainerSkeleton, MediaCardRelationSkeleton, ReviewSkeleton
 from .container import CardContainer, ViewMoreContainer, LandscapeContainer, WideLandscapeContainer, PortraitContainer,\
     BaseMediaContainer
+from .hero_banner import HeroBanner, HeroContainer

@@ -2,7 +2,10 @@ import os
 import sys
 from pathlib import Path
 from typing import List, Optional, Iterator, Union, Tuple
-from PySide6.QtGui import QPixmap, QPixmapCache, QImageReader
+
+from PySide6.QtCore import QRect, Qt, QMargins, QSize, QPointF
+from PySide6.QtGui import QPixmap, QPixmapCache, QImageReader, QColor, QPainter, QPen, QBrush, QGradient, \
+    QLinearGradient
 import re
 import ctypes
 
@@ -172,23 +175,85 @@ def get_scale_factor() -> float:
 
     return scale_factor
 
+def add_margins_pixmap(pixmap: QPixmap, margins: QMargins, fill_color=Qt.transparent) -> QPixmap:
+    new_width = pixmap.width() + margins.left() + margins.right()
+    new_height = pixmap.height() + margins.top() + margins.bottom()
+
+    padded = QPixmap(new_width, new_height)
+    padded.fill(QColor(fill_color))
+
+    painter = QPainter(padded)
+    painter.drawPixmap(margins.left(), margins.top(), pixmap)
+    painter.end()
+
+    return padded
+
+def apply_gradient_overlay_pixmap(pixmap: QPixmap, gradient: QGradient, rect: QRect = None) -> QPixmap:
+    result = QPixmap(pixmap.size())
+    result.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(result)
+    painter.drawPixmap(0, 0, pixmap)
+
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+    if rect is None:
+        rect = pixmap.rect()
+    painter.fillRect(rect, QBrush(gradient))
+
+    painter.end()
+    return result
+
+def create_left_gradient_pixmap(pixmap: QPixmap, gradient_color: QColor, padding: int, offset: int) -> QPixmap:
+    linearGrad = QLinearGradient(QPointF(padding+30, 0), QPointF(padding+offset, 0))
+    linearGrad.setColorAt(0, gradient_color)
+    linearGrad.setColorAt(1, Qt.GlobalColor.transparent)
+    linearGrad.setInterpolationMode(QGradient.InterpolationMode.ColorInterpolation)
+
+    if padding > 0:
+        padded_pixmap = add_margins_pixmap(pixmap, QMargins(padding, 0, 0, 0))
+    else:
+        padded_pixmap = pixmap
+    gradient_rect = QRect(0, 0, offset+padding, padded_pixmap.height())
+    gradient_pixmap = apply_gradient_overlay_pixmap(padded_pixmap, linearGrad, gradient_rect)
+
+    return gradient_pixmap
+
+def create_gradient_pixmap(pixmap: QPixmap, gradient_color: QColor, width: int, strong_width: int) -> QPixmap:
+    strong = round(strong_width/width, 2)
+    # print(strong)
+    linearGrad = QLinearGradient(QPointF(0, 0), QPointF(width, 0))
+    linearGrad.setColorAt(0, gradient_color)
+    linearGrad.setColorAt(strong, gradient_color)
+    linearGrad.setColorAt(1, Qt.GlobalColor.transparent)
+    linearGrad.setInterpolationMode(QGradient.InterpolationMode.ColorInterpolation)
+
+    gradient_rect = QRect(0, 0, width, pixmap.height())
+    gradient_pixmap = apply_gradient_overlay_pixmap(pixmap, linearGrad, gradient_rect)
+
+    return gradient_pixmap
+
 if __name__ == "__main__":
-    try:
-        # Test seconds to time string
-        print(trim_time_string(69.3))  # Output: 01:01:01
-        print(seconds_to_time_string(865.4))  # Output: 23:59:59
+    from PySide6.QtWidgets import QApplication, QLabel
+    app = QApplication(sys.argv)
+    label = QLabel()
+    input_path = "banners/banner.jpg"
+    output_path = "output.png"
+    org_pixmap = QPixmap(input_path)
+    pad_pixmap = add_margins_pixmap(org_pixmap, QMargins(100, 0, 0, 0), Qt.GlobalColor.transparent)
 
-        # Test time string to seconds
-        print(time_string_to_seconds("01:01:01"))  # Output: 3661
-        print(time_string_to_seconds("23:59:59"))  # Output: 86399
+    gradient = QLinearGradient(0, 100, 500, 200)  # from x=50 to x=150
 
-        # Test invalid inputs
-        # print(seconds_to_time_string(-1))  # Raises ValueError
-        # print(time_string_to_seconds("25:60:00"))  # Raises ValueError
-        # print(time_string_to_seconds("invalid"))  # Raises ValueError
+    gradient.setColorAt(0.0, QColor(100, 20, 80, 255))
+    gradient.setColorAt(0.5, QColor(200, 0, 0, 0))
+    # gradient.setColorAt(0.7, QColor(0, 0, 0, 0))
+    gradient.setColorAt(1.0, QColor(200, 0, 0, 250))
 
-        print(get_physical_screen_size(), get_screen_size(), get_scale_factor())
+    grad_pixmap = apply_gradient_overlay_pixmap(pad_pixmap, gradient, QRect(0, 0, 500, pad_pixmap.height()))
 
-    except ValueError as e:
-        print(f"Error: {e}")
+    grad_pixmap.save(output_path)
+    # pixmap.save(output_path)
+
+    label.setPixmap(grad_pixmap.scaled(QSize(500, 500), Qt.KeepAspectRatio))
+    label.show()
+    app.exec()
 

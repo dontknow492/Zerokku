@@ -20,7 +20,7 @@ class SkeletonMode(Enum):
     SHIMMER = auto()
 
 class MyLabel(FluentLabelBase):
-    def __init__(self, text: str, font_size: int = 14, weight: QFont.Weight = QFont.Weight.Normal, parent: QWidget = None):
+    def __init__(self, text: Optional[str]=None, font_size: int = 14, weight: QFont.Weight = QFont.Weight.Normal, parent: QWidget = None):
         self._font_size = font_size
         self._weight = weight
         FluentLabelBase.__init__(self, text)

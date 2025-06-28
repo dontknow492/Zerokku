@@ -101,7 +101,7 @@ class BaseMediaContainer(QWidget):
         self.card_pixmap_map[url] = card
         self.requestCover.emit(url)
 
-    def on_downloaded(self, url: str, pixmap: QPixmap):
+    def on_download_finished(self, url: str, pixmap: QPixmap):
         if card := self.card_pixmap_map.get(url):
             card.setCover(pixmap)
 
@@ -348,6 +348,7 @@ class ViewMoreContainer(QWidget):
         titlelayout.addWidget(self.more_button, alignment=Qt.AlignmentFlag.AlignBottom)
 
         self.scrollarea = KineticScrollArea(self)
+        self.scrollarea.setStyleSheet("background-color: transparent;")
         self.scrollarea.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scrollarea.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # central_widget.setFrameShape(QFrame.Shape.NoFrame)
@@ -406,7 +407,7 @@ class ViewMoreContainer(QWidget):
         self.card_pixmap_map[url] = card
         self.requestCover.emit(url)
 
-    def on_download(self, url: str, pixmap: QPixmap):
+    def on_download_finished(self, url: str, pixmap: QPixmap):
         card = self.card_pixmap_map.get(url, None)
         if card is not None:
             card.setCover(pixmap)
@@ -535,7 +536,6 @@ class ViewMoreContainer(QWidget):
         # logger.debug(f"Resize event triggered")
         height = (self.scrollarea.height() - self.previous_button.height())//2 + self.scrollarea.y()
         offset_height = self.scrollarea.y()
-        print(offset_height)
         self.previous_button.move(0, height)
         self.next_button.move(self.width() - self.next_button.width(), height)
 
@@ -1105,7 +1105,7 @@ def main():
     # main_window = LandscapeContainer()
     # main_window = PortraitContainer()
     # main_window = WideLandscapeContainer()
-    main_window = FixedCardContainer(variant=MediaVariants.PORTRAIT)
+    main_window = ViewMoreContainer("trending")
     main_window.show()
     main_window._batch_size = 80
 

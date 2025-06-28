@@ -225,7 +225,7 @@ class HeroContainerSkeleton(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.cover_size = QSize(370, 195)
+        self.cover_size = QSize(470, 245)
         self.setMinimumWidth(int(self.cover_size.width()* 1.5))
         self.setMinimumHeight(self.cover_size.height()*2)
 
@@ -246,6 +246,8 @@ class HeroContainerSkeleton(QWidget):
         self.line_2_skeleton.setFixedWidth(int(self.cover_size.width()* 1.5))
         self.line_3_skeleton = SkimmerWidget(self)
         self.line_3_skeleton.setFixedWidth(int(self.cover_size.width()* 1.5))
+        self.line_4_skeleton = SkimmerWidget(self)
+        self.line_4_skeleton.setFixedWidth(int(self.cover_size.width()* 1.5))
 
         self.block_skeleton = SkimmerWidget(self)
         self.block_skeleton.setMaximumWidth(self.cover_size.width()//2)
@@ -256,8 +258,10 @@ class HeroContainerSkeleton(QWidget):
         layout.addWidget(self.line_1_skeleton, stretch=2)
         layout.addWidget(self.line_2_skeleton, stretch=2)
         layout.addWidget(self.line_3_skeleton, stretch=2)
+        layout.addWidget(self.line_4_skeleton, stretch=2)
         layout.addSpacing(30)
         layout.addWidget(self.block_skeleton, stretch=4)
+        layout.addSpacing(150)
 
     def start(self):
         self.cover_skeleton.loading = True
@@ -265,7 +269,17 @@ class HeroContainerSkeleton(QWidget):
         self.line_1_skeleton.loading = True
         self.line_2_skeleton.loading = True
         self.line_3_skeleton.loading = True
+        self.line_4_skeleton.loading = True
         self.block_skeleton.loading = True
+
+    def stop(self):
+        self.cover_skeleton.loading = False
+        self.title_skeleton.loading = False
+        self.line_1_skeleton.loading = False
+        self.line_2_skeleton.loading = False
+        self.line_3_skeleton.loading = False
+        self.line_4_skeleton.loading = False
+        self.block_skeleton.loading = False
 
 class ReviewSkeleton(QWidget):
     def __init__(self, parent=None):
@@ -327,9 +341,9 @@ if __name__ == '__main__':
     widget.setLayout(layout)
 
     # skeleton = MediaCardSkeletonDetailed()
-    skeleton = MediaCardSkeletonMinimal()
+    # skeleton = MediaCardSkeletonMinimal()
     # skeleton = MediaCardSkeletonLandscape()
-    # skeleton = HeroContainerSkeleton()
+    skeleton = HeroContainerSkeleton()
     # skeleton = MediaCardRelationSkeleton()
     # skeleton = ReviewSkeleton()
 

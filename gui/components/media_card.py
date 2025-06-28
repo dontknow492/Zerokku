@@ -9,8 +9,9 @@ from PySide6.QtCore import Qt, QSize, QPropertyAnimation, QObject, QRect
 from PySide6.QtGui import QColor, QFont, QResizeEvent, QImage, QPixmap
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout, QFrame, QScrollArea, QWidget, \
     QGraphicsOpacityEffect, QLabel, QSizePolicy
+from loguru import logger
 from qfluentwidgets import SubtitleLabel, BodyLabel, FlowLayout, ScrollArea, TransparentToolButton, \
-    setTheme, Theme, CardWidget, setCustomStyleSheet, SimpleCardWidget
+    setTheme, Theme, CardWidget, setCustomStyleSheet, SimpleCardWidget, ElevatedCardWidget
 
 from gui.common import (WaitingLabel, OutlinedChip, MyLabel, SkimmerWidget, SkeletonMode, KineticScrollArea,
                         MultiLineElideLabel)
@@ -18,13 +19,14 @@ from utils import FontAwesomeRegularIcon, get_scale_factor
 
 from AnillistPython import AnilistMedia, AnilistScore, AnilistMediaInfo, MediaType, MediaStatus, AnilistTitle
 
+
 class MediaVariants(Enum):
     PORTRAIT = 0
     LANDSCAPE = 1
     WIDE_LANDSCAPE = 2
 
 
-class MediaCard(CardWidget):
+class MediaCard(ElevatedCardWidget):
     COVER_SIZE = QSize(195, 270)
     MINI_COVER_SIZE = QSize(55, 76)
     DEFAULT_MARGIN = 9
@@ -38,10 +40,12 @@ class MediaCard(CardWidget):
 
     def __init__(self, variant: MediaVariants = MediaVariants.PORTRAIT, parent=None):
         super().__init__(parent)
+        self._mal_id: int = None
         self._min_sizeHint = QSize(self.COVER_SIZE.width(), self.COVER_SIZE.height() + 50)
         self.variant = variant
         self.rating_color = QColor("green")
         self._is_loading = True
+        self._media_id: int = None
         self._create_widgets()
         self._create_genre()
         self.setup_ui()
@@ -65,7 +69,8 @@ class MediaCard(CardWidget):
 
         self.start_year = 2023
         self.end_year = 2024
-        self.time_label = MyLabel(f"{self.start_year}-{self.end_year}", self.BODY_FONT_SIZE, self.STRONG_BODY_FONT_WEIGHT)
+        self.time_label = MyLabel(f"{self.start_year}-{self.end_year}", self.BODY_FONT_SIZE,
+                                  self.STRONG_BODY_FONT_WEIGHT)
         self.status_label = MyLabel("Releasing", self.BODY_FONT_SIZE, self.STRONG_BODY_FONT_WEIGHT)
 
         self.release_status_label = MyLabel("Release", self.Title_FONT_SIZE, self.TILE_FONT_WEIGHT)
@@ -207,13 +212,11 @@ class MediaCard(CardWidget):
         layout.addWidget(self.cover_label)
         layout.addLayout(main_vlayout)
 
-
         self.title_label.setParent(self.cover_label)
         self.title_label.setMinimumWidth(self.cover_label.width())
         self.title_label.adjustSize()
-        self.title_label.move(0, self.cover_label.height() - self.title_label.height()-9)
+        self.title_label.move(0, self.cover_label.height() - self.title_label.height() - 9)
         # self.title_label.raise_()
-
 
         self.setLayout(layout)
         self.setMaximumHeight(self.cover_label.height())
@@ -233,7 +236,6 @@ class MediaCard(CardWidget):
         self.genre_layout.setContentsMargins(0, 0, 0, 0)
         # self.title_label.setParent(None)
 
-
         main_layout = QHBoxLayout()
         main_layout.setContentsMargins(self.DEFAULT_MARGIN, self.DEFAULT_MARGIN, self.DEFAULT_MARGIN,
                                        self.DEFAULT_MARGIN)
@@ -243,13 +245,13 @@ class MediaCard(CardWidget):
                                     alignments=[Qt.AlignBottom, None], spacing=4)
 
         layout_2 = self.create_vbox(self.rating_widget, self.users_label,
-                                    alignments=[Qt.AlignBottom | Qt.AlignHCenter , Qt.AlignTop | Qt.AlignHCenter ])
+                                    alignments=[Qt.AlignBottom | Qt.AlignHCenter, Qt.AlignTop | Qt.AlignHCenter])
 
         layout_3 = self.create_vbox(self.time_label, self.status_label,
-                                    alignments=[Qt.AlignBottom | Qt.AlignHCenter , Qt.AlignTop | Qt.AlignHCenter ])
+                                    alignments=[Qt.AlignBottom | Qt.AlignHCenter, Qt.AlignTop | Qt.AlignHCenter])
 
         layout_4 = self.create_vbox(self.media_type, self.media_episode_chapters,
-                                    alignments=[Qt.AlignBottom | Qt.AlignHCenter , Qt.AlignTop | Qt.AlignHCenter ])
+                                    alignments=[Qt.AlignBottom | Qt.AlignHCenter, Qt.AlignTop | Qt.AlignHCenter])
 
         main_layout.addWidget(self.cover_label, stretch=0, alignment=Qt.AlignLeft)
         main_layout.addLayout(layout_1, stretch=4)
@@ -285,6 +287,13 @@ class MediaCard(CardWidget):
         self.adjustSize()
 
     def setData(self, data: AnilistMedia):
+        media_id = data.id
+        if not id:
+            logger.warning(f"Media {media_id} has no ID")
+
+        self.setMediaId(media_id)
+        self.setMyAniListId(data.idMal)
+
         self.setTitle(data.title.romaji or "Unknown Title")
         self.description_label.setText(data.description or "No description available.")
 
@@ -327,6 +336,11 @@ class MediaCard(CardWidget):
 
         # Debug info
         # print(f"{count} {count_label}, {favourites} users, {average_score} score, status: {status_value}")
+    def setMediaId(self, media_id: int):
+        self._media_id = media_id
+
+    def setMyAniListId(self, mal_media_id: int):
+        self._mal_id = mal_media_id
 
     def setTitle(self, title, hover_color: QColor = None):
         if title is None:
@@ -365,8 +379,6 @@ class MediaCard(CardWidget):
         if users is None:
             return
         self.users_label.setText(f"{users} users")
-
-
 
     def setStatus(self, status: Union[str, MediaStatus]):
         if status is None:
@@ -420,7 +432,6 @@ class MediaCard(CardWidget):
         return self._min_sizeHint
 
 
-
 class MediaRelationCard(CardWidget):
     COVER_SIZE = QSize(195, 270)
     Title_FONT_SIZE = 17
@@ -429,6 +440,7 @@ class MediaRelationCard(CardWidget):
     BODY_FONT_WEIGHT = QFont.Weight.Normal
     STRONG_BODY_FONT_WEIGHT = QFont.Weight.DemiBold
     BODY_FONT_SIZE = 14
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -439,7 +451,7 @@ class MediaRelationCard(CardWidget):
         self.title_label = MyLabel("This is title", self.Title_FONT_SIZE, self.TILE_FONT_WEIGHT)
         self.body_label = MyLabel("Side Story", self.BODY_FONT_SIZE, self.BODY_FONT_WEIGHT)
 
-        #overlay
+        # overlay
         self.overlay_widget = SimpleCardWidget(self)
         layout = QVBoxLayout(self.overlay_widget)
         layout.setSpacing(0)
@@ -447,7 +459,6 @@ class MediaRelationCard(CardWidget):
         layout.addWidget(self.body_label)
 
         self.overlay_widget.raise_()
-
 
         self._init_ui()
 
@@ -474,8 +485,6 @@ class MediaRelationCard(CardWidget):
         self.overlay_widget.raise_()
 
 
-
-
 # Example usage
 if __name__ == '__main__1':
     app = QApplication(sys.argv)
@@ -488,6 +497,7 @@ if __name__ == "__main__":
     import json
     import time
     from AnillistPython import parse_searched_media
+
     scale_factor = get_scale_factor()
     os.environ["QT_SCALE_FACTOR"] = f"{scale_factor}"
     setTheme(Theme.DARK)
@@ -500,7 +510,7 @@ if __name__ == "__main__":
     scroll.setWidgetResizable(True)
 
     start = time.time()
-    with open(r"D:\Program\Zerokku\demo\data.json", "r", encoding="utf-8")  as data:
+    with open(r"D:\Program\Zerokku\demo\data.json", "r", encoding="utf-8") as data:
         result = json.load(data)
     print(f"{time.time() - start} seconds")
     start = time.time()
@@ -518,7 +528,6 @@ if __name__ == "__main__":
         card.set_variant(MediaVariants.LANDSCAPE)
 
     print(f"{time.time() - start} seconds")
-
 
     scroll.show()
     sys.exit(app.exec())
