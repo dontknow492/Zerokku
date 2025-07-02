@@ -540,22 +540,23 @@ class ViewMoreContainer(QWidget):
         self.next_button.move(self.width() - self.next_button.width(), height)
 
 class FilterNavigation(QWidget):
-    varientChanged = Signal(MediaVariants)
+    variantChanged = Signal(MediaVariants)
     def __init__(self, variant: MediaVariants, parent=None):
         super().__init__(parent)
+        self.chips: Dict[str, PrimaryPushButton] = dict()
         self.main_layout = QHBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
 
         sort_combo = EnumComboBox(MediaSort)
         portrait_view_button = TransparentToggleToolButton(IconManager.GRID_3X3, self)
         portrait_view_button.setChecked(variant == MediaVariants.PORTRAIT)
-        portrait_view_button.clicked.connect(lambda: self.varientChanged.emit(MediaVariants.PORTRAIT))
+        portrait_view_button.clicked.connect(lambda: self.variantChanged.emit(MediaVariants.PORTRAIT))
         landscape_view_button = TransparentToggleToolButton(IconManager.STACK, self)
         landscape_view_button.setChecked(variant == MediaVariants.LANDSCAPE)
-        landscape_view_button.clicked.connect(lambda: self.varientChanged.emit(MediaVariants.LANDSCAPE))
+        landscape_view_button.clicked.connect(lambda: self.variantChanged.emit(MediaVariants.LANDSCAPE))
         gird_view_button = TransparentToggleToolButton(IconManager.GRID, self)
         gird_view_button.setChecked(variant == MediaVariants.WIDE_LANDSCAPE)
-        gird_view_button.clicked.connect(lambda: self.varientChanged.emit(MediaVariants.WIDE_LANDSCAPE))
+        gird_view_button.clicked.connect(lambda: self.variantChanged.emit(MediaVariants.WIDE_LANDSCAPE))
 
         button_group = QButtonGroup(self)
         button_group.addButton(portrait_view_button)
@@ -564,21 +565,32 @@ class FilterNavigation(QWidget):
 
 
         #init ui
-        self.main_layout.addWidget(sort_combo, alignment=Qt.AlignmentFlag.AlignRight)
+        # self.main_layout.addWidget(sort_combo, alignment=Qt.AlignmentFlag.AlignRight)
         self.main_layout.addWidget(portrait_view_button)
         self.main_layout.addWidget(landscape_view_button)
         self.main_layout.addWidget(gird_view_button)
 
     def add_chip(self, type: str, value: str, icon = FluentIcon.TAG):
         logger.info(f"Adding chip '{type}': '{value}' to filter navigation")
-        button = PrimaryPushButton(icon, f"{type}: {value}", self)
+        name = f"{type}: {value}"
+        button = PrimaryPushButton(icon, name, self)
+        self.chips[name] = button
         self.main_layout.insertWidget(0, button, alignment=Qt.AlignmentFlag.AlignLeft)
+        button.clicked.connect(lambda: self.remove_chip(type, value))
 
-class CardContainer(QWidget):
+    def remove_chip(self, type: str, value: str):
+        name = f"{type}: {value}"
+        button = self.chips.get(name, None)
+        if button:
+            self.main_layout.removeWidget(button)
+            button.deleteLater()
+
+
+class OldCardContainer(QWidget):
     endReached = Signal()
     requestCover = Signal(str)
     def __init__(self, variant: MediaVariants = MediaVariants.PORTRAIT, parent=None):
-        super(CardContainer, self).__init__(parent)
+        super(OldCardContainer, self).__init__(parent)
         logger.info(f"Initializing CardContainer with variant: {variant.name}")
         self._screen_geometry = QApplication.primaryScreen().availableGeometry()
         self.animation_manager = AnimationManager()
@@ -669,7 +681,7 @@ class CardContainer(QWidget):
         return scroll_area
 
     def _signal_handler(self):
-        self.filter_navigation.varientChanged.connect(self.switch_view)
+        self.filter_navigation.variantChanged.connect(self.switch_view)
         self.portrait_view.verticalScrollBar().valueChanged.connect(self._onScroll)
         self.landscape_view.verticalScrollBar().valueChanged.connect(self._onScroll)
         self.detailed_view.verticalScrollBar().valueChanged.connect(self._onScroll)
@@ -686,6 +698,9 @@ class CardContainer(QWidget):
         self.card_pixmap_map[url] = card
 
         self.requestCover.emit(url)
+
+    def add_nav_chip(self, type:str, value: str):
+        self.filter_navigation.add_chip(type, value)
 
 
 
@@ -928,7 +943,7 @@ class CardContainer(QWidget):
 
 
 
-class FixedCardContainer(QWidget):
+class CardContainer(QWidget):
     def __init__(self, variant: MediaVariants = MediaVariants.PORTRAIT, parent=None):
         super().__init__(parent)
         logger.info(f"Initializing CardContainer with variant: {variant.name}")
@@ -946,12 +961,12 @@ class FixedCardContainer(QWidget):
         self.variant = variant
 
 
-        self.filter_navigation = FilterNavigation(variant, self)
-        self.filter_navigation.add_chip("Search", "abc")
+        # self.filter_navigation = FilterNavigation(variant, self)
+        # self.filter_navigation.add_chip("Search", "abc")
 
         self.view_stack = AniStackedWidget(self)
 
-        spacing = 40
+        spacing = 32
         self.portrait_container = PortraitContainer(skeletons = 12, parent=self)
         self.portrait_container.setSpacing(spacing)
         self.landscape_container = LandscapeContainer(skeletons=10, parent=self)
@@ -978,7 +993,7 @@ class FixedCardContainer(QWidget):
         self.view_stack.setCurrentWidget(self.get_variant_view(variant))
 
         layout = QVBoxLayout(self)
-        layout.addWidget(self.filter_navigation)
+        # layout.addWidget(self.filter_navigation)
         layout.addWidget(self.view_stack, stretch=1)
 
         self.scroll_timer = QTimer()
@@ -989,13 +1004,19 @@ class FixedCardContainer(QWidget):
 
     def create_view(self, central_widget):
         scroll_area = KineticScrollArea(self)
+        scroll_area.setStyleSheet("""
+            KineticScrollArea, KineticScrollArea QWidget {
+                background-color: transparent;
+                
+            }
+        """)
         central_widget.setContentsMargins(0, 0, 0, 0)
         scroll_area.setWidget(central_widget)
         scroll_area.setWidgetResizable(True)
         return scroll_area
 
     def _signal_handler(self):
-        self.filter_navigation.varientChanged.connect(self.switch_view)
+        # self.filter_navigation.variantChanged.connect(self.switch_view)
         self.portrait_scrollArea.verticalScrollBar().valueChanged.connect(self._onScroll)
         self.landscape_scrollArea.verticalScrollBar().valueChanged.connect(self._onScroll)
         self.wide_landscape_scrollArea.verticalScrollBar().valueChanged.connect(self._onScroll)

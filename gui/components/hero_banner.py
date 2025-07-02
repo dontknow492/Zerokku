@@ -34,7 +34,7 @@ class HeroBanner(QWidget):
         self.title_label.setContentsMargins(0, 0, 0, 0)
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.description_label = MultiLineElideLabel("This is Description", 4, 16, QFont.Weight.DemiBold, parent=self)
-        # self.description_label.max_lines = 4
+        # self.overview_label.max_lines = 4
         self.genre_layout = FlowLayout()
         self.learn_more_button = PushButton(FluentIcon.VIEW, " Learn more", parent=self)
         self.learn_more_button.setFont(QFont("Arial", 16, QFont.Weight.Bold))

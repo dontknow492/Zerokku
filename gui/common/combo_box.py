@@ -1,6 +1,6 @@
 import sys
 from enum import Enum
-from typing import Dict, Type
+from typing import Dict, Type, Optional
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget, QApplication
@@ -9,43 +9,56 @@ from qfluentwidgets import ComboBox, Action, CheckableMenu, RoundMenu
 
 class EnumComboBox(ComboBox):
     enumChanged = Signal(Enum)
-    def __init__(self, enum: Type[Enum] = None, checkable: bool = False, parent: QWidget = None):
+    defaultSignal = Signal()
+    def __init__(self, enum: Type[Enum] = None, parent: QWidget = None, add_default: bool = True, default_text: str = "Any"):
         """
-        :param enum: the Enum class to populate the combo box with
-        :param checkable: if True, items are checkable (multi-select)
-        :param parent: parent widget
+        :param enum: Enum class to populate the combo box with
+        :param parent: Parent QWidget
+        :param add_default: If True, adds a default option (e.g., "Any")
+        :param default_text: Text for the default option
         """
         super().__init__(parent)
         self.enum = enum
-        self.checkable = checkable
         self.enum_map: Dict[str, Enum] = dict()
-
         self.action_map: Dict[str, Action] = dict()
+        self._default_text = default_text
+        self._has_default_text = add_default
 
         if enum:
             self.setEnum(enum)
 
         self.currentTextChanged.connect(self._on_clicked)
 
-    def setEnum(self, enum: Enum):
+    def setEnum(self, enum: Type[Enum]):
         self.enum = enum
-        for item in self.enum:
-            value = str(item.value)
-            value = self._format_str(value)
-            self.enum_map[value] = item
+        self.clear()
+        self.enum_map.clear()
 
-        for value in self.enum_map.keys():
+        if self._has_default_text:
+            self.addItem(self._default_text)  # Placeholder has no enum value
+
+        for item in self.enum:
+            value = self._format_str(str(item.value))
+            self.enum_map[value] = item
             self.addItem(value)
 
+    def getCurrentEnum(self) -> Optional[Enum]:
+        """Return the selected Enum value, or None if default/placeholder is selected."""
+        text = self.currentText()
+        if (self._has_default_text or self.text() == self._default_text) and text == self._placeholderText:
+            return None
+        return self.enum_map.get(text)
+
     def _format_str(self, value: str) -> str:
-        value = value.replace("_", " ")
-        return value.title()
+        return value.replace("_", " ").title()
 
-
-    def _on_clicked(self, value):
+    def _on_clicked(self, value: str):
         enum = self.enum_map.get(value)
         if enum:
             self.enumChanged.emit(enum)
+        else:
+            if self.text() == self._default_text:
+                self.defaultSignal.emit()
 
 
 

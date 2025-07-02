@@ -35,7 +35,7 @@ class AniStackedWidget(QStackedWidget):
     def setCurrentWidget(self, widget: QWidget, duration: int = 300, distance: int = 300):
         self.setCurrentIndex(self.indexOf(widget), duration, distance)
 
-    def setCurrentIndex(self, index, duration: int = 300, distance: int = 300):
+    def setCurrentIndex(self, index, duration: int = 600, distance: int = 300):
         pre_index = self.indexOf(self.currentWidget())
         des_index = index
         super().setCurrentIndex(des_index)

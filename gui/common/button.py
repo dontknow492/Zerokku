@@ -64,7 +64,9 @@ class RoundedToolButton(ToolButton):
         self.setIcon(icon)
         self.setIconSize(QSize(18, 18))
 
-        self._radius = 16
+        self._radius = 17
+        # self.setCursor(Qt.CursorShape.PointingHandCursor)
+
         qss = self._build_style()
         setCustomStyleSheet(self, qss, qss)
 

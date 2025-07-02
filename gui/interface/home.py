@@ -3,14 +3,14 @@ from enum import Enum, auto
 from typing import List, Union
 
 import sys
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal, QRect
 from PySide6.QtGui import QColor, QPixmap, QCloseEvent
 from PySide6.QtWidgets import QWidget, QFrame, QApplication, QVBoxLayout, QSpacerItem, QSizePolicy
 from loguru import logger
 from qasync import QEventLoop, asyncSlot, asyncClose
 from qfluentwidgets import Theme, setTheme
 
-from AnillistPython import AnilistMedia, parse_searched_media
+from AnillistPython import AnilistMedia, parse_searched_media, MediaType
 from core import ImageDownloader
 from gui.common import KineticScrollArea, MyLabel
 from utils import apply_gradient_overlay_pixmap, create_left_gradient_pixmap, add_margins_pixmap, create_gradient_pixmap
@@ -29,22 +29,22 @@ class HomeContainers(Enum):
 class HomeInterface(KineticScrollArea):
     CONTAINER_MIN_HEIGHT = 380
     downloaderInitialized = Signal()
-    def __init__(self, parent: QWidget = None):
+    def __init__(self, screen_geometry:QRect, type: MediaType, parent: QWidget = None):
         super().__init__(parent)
         self.setFrameShape(QFrame.Shape.NoFrame)
 
         self.setStyleSheet("""
             KineticScrollArea, KineticScrollArea QWidget {
-                # background: none;
                 background-color: transparent;
                 
             }
         """)
-        # self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # self.verticalScrollBar().style().drawPrimitive(QStyle.)
 
-        self._screen_geometry = QApplication.primaryScreen().availableGeometry()
-        self._banner_size = QSize(self._screen_geometry.width() - 13, int(self._screen_geometry.height() * 0.9))
+        self._screen_geometry = screen_geometry
+        # self.setFixedSize(self._screen_geometry.size())
+        self._banner_size = QSize(self._screen_geometry.width(), int(self._screen_geometry.height() * 0.9))
 
         self.image_downloader: ImageDownloader = None
 
@@ -60,8 +60,9 @@ class HomeInterface(KineticScrollArea):
         # self.hero_container.setStyleSheet("background-color: red;")
         self.hero_container.start()
         # self.hero_container.setFixedHeight(int(self._screen_geometry.height() * 0.6))
-        self.continue_watching_container = ViewMoreContainer("Continue watching", parent)
-        self.continue_watching_container.setMinimumHeight(self.CONTAINER_MIN_HEIGHT)
+        continue_str = f"Continue {"watching" if type == MediaType.ANIME else "reading"}"
+        self.continue_container = ViewMoreContainer(continue_str, parent)
+        self.continue_container.setMinimumHeight(self.CONTAINER_MIN_HEIGHT)
         self.latest_added_container = ViewMoreContainer("Latest added", parent)
         self.latest_added_container.setMinimumHeight(self.CONTAINER_MIN_HEIGHT)
         self.trending_container = ViewMoreContainer("Trending", parent)
@@ -71,7 +72,7 @@ class HomeInterface(KineticScrollArea):
 
         self.main_layout.addWidget(self.hero_container)
         self.main_layout.addSpacing(-130)
-        self.main_layout.addWidget(self.continue_watching_container)
+        self.main_layout.addWidget(self.continue_container)
         # self.main_layout.addWidget(self.recently_updated_container)
         self.main_layout.addWidget(self.latest_added_container)
         self.main_layout.addWidget(self.trending_container)
@@ -86,14 +87,14 @@ class HomeInterface(KineticScrollArea):
     asyncSlot()
     async def _post_init(self):
         self.image_downloader = ImageDownloader()
-        self.image_downloader.imageDownloaded.connect(self.continue_watching_container.on_download_finished)
+        self.image_downloader.imageDownloaded.connect(self.continue_container.on_download_finished)
         self.image_downloader.imageDownloaded.connect(self.trending_container.on_download_finished)
         self.image_downloader.imageDownloaded.connect(self.latest_added_container.on_download_finished)
         self.image_downloader.imageDownloaded.connect(self.top_hundred_container.on_download_finished)
         self.downloaderInitialized.emit()
 
     def _signal_handler(self):
-        self.continue_watching_container.requestCover.connect(self._on_cover_download_request)
+        self.continue_container.requestCover.connect(self._on_cover_download_request)
         self.latest_added_container.requestCover.connect(self._on_cover_download_request)
         self.trending_container.requestCover.connect(self._on_cover_download_request)
         self.top_hundred_container.requestCover.connect(self._on_cover_download_request)
@@ -104,11 +105,12 @@ class HomeInterface(KineticScrollArea):
         # logger.debug(f"Downloading {url}")
         await self.image_downloader.fetch(url, True)
 
-    def _on_cover_download_finished(self, url: str, pixmap: QPixmap):
-        pass
+    def update_screen_geometry(self, geometry: QRect):
+        self._screen_geometry = geometry
+        self.setFixedWidth(self._screen_geometry.width())
 
     def add_continue_watching_medias(self, data: List[AnilistMedia]):
-        self.continue_watching_container.add_medias(data)
+        self.continue_container.add_medias(data)
 
     def add_trending_medias(self, data: List[AnilistMedia]):
         self.trending_container.add_medias(data)
