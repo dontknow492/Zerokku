@@ -132,7 +132,7 @@ class WaitingLabel(ImageLabel):
 
         #overlay
         self.dark_overlay = SimpleCardWidget(self)
-        self.dark_overlay.setStyleSheet("background-color: green;")
+        self.dark_overlay.setStyleSheet("background-color: gray;")
         self.dark_overlay.setFixedSize(self.width(), self.height())
         layout= QVBoxLayout(self.dark_overlay)
         self.waiting_spinner = WaitingSpinner(self)

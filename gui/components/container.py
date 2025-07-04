@@ -1,4 +1,5 @@
 from collections import deque
+from pathlib import Path
 from typing import List, Any, Tuple, Union, Callable, Optional, Dict, Type, Deque
 
 import sys
@@ -142,6 +143,9 @@ class BaseMediaContainer(QWidget):
                 logger.debug("Chunk loading cancelled")
                 return
 
+            self.setUpdatesEnabled(False)
+            self.setVisible(False)
+
             start_index = self._chunk_index
             end_index = min(start_index + self.CHUNK_SIZE, len(self._chunk_data))
             chunk = self._chunk_data[start_index:end_index]
@@ -150,6 +154,7 @@ class BaseMediaContainer(QWidget):
             for media in chunk:
                 if self._cancel_loading_flag:
                     logger.debug("Chunk loading cancelled during card processing")
+                    self._finalize_chunk_loading()
                     return
                 if isinstance(media, AnilistMedia):
                     card = self._create_card(media)
@@ -160,13 +165,19 @@ class BaseMediaContainer(QWidget):
 
             self._chunk_index = end_index
             if self._chunk_index < len(self._chunk_data) and not self._cancel_loading_flag:
+                self._finalize_chunk_loading()
                 self._chunk_timer.start()
             else:
                 self.chunk_loaded.emit()
                 logger.debug("All chunks processed or loading cancelled")
+                self._finalize_chunk_loading()
 
         self._reset_chunk_timer(process_chunk)
         self._chunk_timer.start()
+
+    def _finalize_chunk_loading(self):
+        self.setVisible(True)
+        self.setUpdatesEnabled(True)
 
     def _reset_chunk_timer(self, callback: Callable):
         """(Re)initializes the chunk processing QTimer."""
@@ -198,9 +209,14 @@ class BaseMediaContainer(QWidget):
         self.container_layout.addWidget(card)
 
     def insertWidget(self, index: int, card: MediaCard):
+        # self.setUpdatesEnabled(False)
+        # self.setVisible(False)
         if isinstance(card, MediaCard):
             self.cards.append(card)
+        # self.container_layout.addWidget(card)
         self.container_layout.insertWidget(index, card)
+        # self.setUpdatesEnabled(True)
+        # self.setVisible(True)
 
     def setSpacing(self, spacing: int):
         self.container_layout.setSpacing(spacing)
@@ -247,13 +263,13 @@ class LandscapeContainer(BaseMediaContainer):
     SkeletonType = MediaCardSkeletonLandscape
     LayoutType = QVBoxLayout
     Variant = MediaVariants.LANDSCAPE
-    CHUNK_SIZE = 1
+    CHUNK_SIZE = 5
 
 class PortraitContainer(BaseMediaContainer):
     SkeletonType = MediaCardSkeletonMinimal
     LayoutType = FlowLayout
     Variant = MediaVariants.PORTRAIT
-    CHUNK_SIZE = 1
+    CHUNK_SIZE = 5
     def setSpacing(self, spacing: int):
         self.setHorizontalSpacing(spacing)
         self.setVerticalSpacing(spacing)
@@ -268,7 +284,7 @@ class WideLandscapeContainer(BaseMediaContainer):
     SkeletonType = MediaCardSkeletonDetailed
     LayoutType = QGridLayout
     Variant = MediaVariants.WIDE_LANDSCAPE  # or MediaVariants.WIDE_LANDSCAPE, if you have one
-    CHUNK_SIZE = 1
+    CHUNK_SIZE = 5
     def __init__(self, skeletons: int = 4, parent=None, columns: int = 2):
         self._grid_columns = columns
         self._grid_index = 0  # tracks next available slot
@@ -316,7 +332,7 @@ class WideLandscapeContainer(BaseMediaContainer):
 
 class ViewMoreContainer(QWidget):
     seeMoreSignal = Signal()
-    cardClickedSignal = Signal()
+    cardClicked = Signal(int, AnilistMedia)
     requestCover = Signal(str)
     MAX_CARDS = 25
     MAX_SKELETON = 10
@@ -407,7 +423,7 @@ class ViewMoreContainer(QWidget):
         self.card_pixmap_map[url] = card
         self.requestCover.emit(url)
 
-    def on_download_finished(self, url: str, pixmap: QPixmap):
+    def on_download_finished(self, url: str, pixmap: QPixmap, path: Path) -> None:
         card = self.card_pixmap_map.get(url, None)
         if card is not None:
             card.setCover(pixmap)
@@ -513,6 +529,7 @@ class ViewMoreContainer(QWidget):
         logger.trace(f"Adding media card at index {index}")
         card = MediaCard(self.variant)
         card.setData(data)
+        card.cardClicked.connect(self.cardClicked.emit)
         url = data.coverImage.large
         self.cards.append(card)
         self.addWidget(card, index)
@@ -530,6 +547,16 @@ class ViewMoreContainer(QWidget):
 
     def get_batch_size(self):
         return self._batch_size
+
+    def stop_skeletons(self):
+        logger.debug("Stopping skeletons")
+        for skeleton in self._skeletons:
+            skeleton.stop()
+
+    def start_skeletons(self):
+        logger.debug("Starting skeletons")
+        for skeleton in self._skeletons:
+            skeleton.start()
 
 
     def resizeEvent(self, event: QResizeEvent):
@@ -944,6 +971,7 @@ class OldCardContainer(QWidget):
 
 
 class CardContainer(QWidget):
+    BATCH_SIZE = 10
     def __init__(self, variant: MediaVariants = MediaVariants.PORTRAIT, parent=None):
         super().__init__(parent)
         logger.info(f"Initializing CardContainer with variant: {variant.name}")
@@ -961,8 +989,8 @@ class CardContainer(QWidget):
         self.variant = variant
 
 
-        # self.filter_navigation = FilterNavigation(variant, self)
-        # self.filter_navigation.add_chip("Search", "abc")
+        self.filter_navigation = FilterNavigation(variant, self)
+        self.filter_navigation.add_chip("Search", "abc")
 
         self.view_stack = AniStackedWidget(self)
 
@@ -971,7 +999,9 @@ class CardContainer(QWidget):
         self.portrait_container.setSpacing(spacing)
         self.landscape_container = LandscapeContainer(skeletons=10, parent=self)
         self.landscape_container.setSpacing(spacing)
+        # self.landscape_container.setFixedHeight(3000)
         self.wide_landscape_container = WideLandscapeContainer(skeletons=4, parent=self)
+        # self.wide_landscape_container.setFixedHeight()
         self.wide_landscape_container.setSpacing(spacing)
 
 
@@ -993,7 +1023,7 @@ class CardContainer(QWidget):
         self.view_stack.setCurrentWidget(self.get_variant_view(variant))
 
         layout = QVBoxLayout(self)
-        # layout.addWidget(self.filter_navigation)
+        layout.addWidget(self.filter_navigation)
         layout.addWidget(self.view_stack, stretch=1)
 
         self.scroll_timer = QTimer()
@@ -1016,7 +1046,7 @@ class CardContainer(QWidget):
         return scroll_area
 
     def _signal_handler(self):
-        # self.filter_navigation.variantChanged.connect(self.switch_view)
+        self.filter_navigation.variantChanged.connect(self.switch_view)
         self.portrait_scrollArea.verticalScrollBar().valueChanged.connect(self._onScroll)
         self.landscape_scrollArea.verticalScrollBar().valueChanged.connect(self._onScroll)
         self.wide_landscape_scrollArea.verticalScrollBar().valueChanged.connect(self._onScroll)
@@ -1035,6 +1065,7 @@ class CardContainer(QWidget):
         scrollbar = view.verticalScrollBar()
         if scrollbar.value() >= scrollbar.maximum() - self._screen_geometry.height() // 2:
             logger.debug("User scrolled near bottom, updating view")
+            self._load_next_batch()
             # self._update_view(self.previous_variant, self.variant)
 
     def switch_view(self, variant: MediaVariants):
@@ -1088,13 +1119,13 @@ class CardContainer(QWidget):
             QTimer.singleShot(10, lambda: next_container.add_medias(medias))
             # next_container.add_medias
         elif len(cards) >= batch_size:
-            next_container.add_cards(cards[:batch_size])
+            next_container.add_cards(cards)
 
 
 
 
     def get_batch_size(self):
-        return self._batch_size
+        return self.BATCH_SIZE
 
     def get_variant_view(self, variant: MediaVariants):
         return self.variant_map[variant][0]
@@ -1126,7 +1157,7 @@ def main():
     # main_window = LandscapeContainer()
     # main_window = PortraitContainer()
     # main_window = WideLandscapeContainer()
-    main_window = ViewMoreContainer("trending")
+    main_window = CardContainer()
     main_window.show()
     main_window._batch_size = 80
 

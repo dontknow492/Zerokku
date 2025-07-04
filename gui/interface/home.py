@@ -1,6 +1,7 @@
 import asyncio
 from enum import Enum, auto
-from typing import List, Union
+from pathlib import Path
+from typing import List, Union, Tuple, Dict
 
 import sys
 from PySide6.QtCore import QSize, Qt, QTimer, Signal, QRect
@@ -10,13 +11,16 @@ from loguru import logger
 from qasync import QEventLoop, asyncSlot, asyncClose
 from qfluentwidgets import Theme, setTheme
 
-from AnillistPython import AnilistMedia, parse_searched_media, MediaType
+from AnillistPython import AnilistMedia, parse_searched_media, MediaType, MediaQueryBuilder
 from core import ImageDownloader
 from gui.common import KineticScrollArea, MyLabel
-from utils import apply_gradient_overlay_pixmap, create_left_gradient_pixmap, add_margins_pixmap, create_gradient_pixmap
+from utils import apply_gradient_overlay_pixmap, create_left_gradient_pixmap, add_margins_pixmap, \
+    create_gradient_pixmap, detect_faces_and_crop, apply_left_gradient, add_padding
 from gui.components import MediaCard, MediaVariants, \
     MediaCardSkeletonLandscape, ViewMoreContainer, LandscapeContainer, HeroContainer
 from utils import apply_gradient_overlay_pixmap, create_left_gradient_pixmap, add_margins_pixmap
+
+from PIL import Image, ImageQt
 
 
 class HomeContainers(Enum):
@@ -29,6 +33,7 @@ class HomeContainers(Enum):
 class HomeInterface(KineticScrollArea):
     CONTAINER_MIN_HEIGHT = 380
     downloaderInitialized = Signal()
+    cardClicked = Signal(int, AnilistMedia)
     def __init__(self, screen_geometry:QRect, type: MediaType, parent: QWidget = None):
         super().__init__(parent)
         self.setFrameShape(QFrame.Shape.NoFrame)
@@ -39,6 +44,11 @@ class HomeInterface(KineticScrollArea):
                 
             }
         """)
+
+        self._hero_banner_map: Dict[str, Tuple] = dict()
+
+        self._card_query_builder = MediaQueryBuilder().include_images().include_title()
+
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # self.verticalScrollBar().style().drawPrimitive(QStyle.)
 
@@ -63,10 +73,14 @@ class HomeInterface(KineticScrollArea):
         continue_str = f"Continue {"watching" if type == MediaType.ANIME else "reading"}"
         self.continue_container = ViewMoreContainer(continue_str, parent)
         self.continue_container.setMinimumHeight(self.CONTAINER_MIN_HEIGHT)
+        self.continue_container.setVisible(False)
+        self.continue_container.stop_skeletons()
         self.latest_added_container = ViewMoreContainer("Latest added", parent)
         self.latest_added_container.setMinimumHeight(self.CONTAINER_MIN_HEIGHT)
         self.trending_container = ViewMoreContainer("Trending", parent)
         self.trending_container.setMinimumHeight(self.CONTAINER_MIN_HEIGHT)
+        self.top_rated_container = ViewMoreContainer("Top rated", parent)
+        self.top_rated_container.setMinimumHeight(self.CONTAINER_MIN_HEIGHT)
 
         self.top_hundred_container = LandscapeContainer(parent=self)
 
@@ -76,28 +90,43 @@ class HomeInterface(KineticScrollArea):
         # self.main_layout.addWidget(self.recently_updated_container)
         self.main_layout.addWidget(self.latest_added_container)
         self.main_layout.addWidget(self.trending_container)
+        self.main_layout.addWidget(self.top_rated_container)
         top_label = MyLabel("Top 100", 20, parent=self)
         top_label.setContentsMargins(18, 0, 0, 0)
         self.main_layout.addWidget(top_label)
         self.main_layout.addWidget(self.top_hundred_container)
 
-        asyncio.ensure_future(self._post_init())
+        # asyncio.ensure_future(self._post_init())
         self._signal_handler()
 
     asyncSlot()
-    async def _post_init(self):
+    async def connect_image_downloader(self):
         self.image_downloader = ImageDownloader()
         self.image_downloader.imageDownloaded.connect(self.continue_container.on_download_finished)
         self.image_downloader.imageDownloaded.connect(self.trending_container.on_download_finished)
         self.image_downloader.imageDownloaded.connect(self.latest_added_container.on_download_finished)
         self.image_downloader.imageDownloaded.connect(self.top_hundred_container.on_download_finished)
+        self.image_downloader.imageDownloaded.connect(self.top_rated_container.on_download_finished)
+        self.image_downloader.imageDownloaded.connect(self._on_hero_banner_downloaded)
         self.downloaderInitialized.emit()
 
     def _signal_handler(self):
         self.continue_container.requestCover.connect(self._on_cover_download_request)
+        self.trending_container.cardClicked.connect(self.cardClicked.emit)
+
         self.latest_added_container.requestCover.connect(self._on_cover_download_request)
+        self.latest_added_container.cardClicked.connect(self.cardClicked.emit)
+
         self.trending_container.requestCover.connect(self._on_cover_download_request)
+        self.trending_container.cardClicked.connect(self.cardClicked.emit)
+
+        self.top_rated_container.requestCover.connect(self._on_cover_download_request)
+        self.top_rated_container.cardClicked.connect(self.cardClicked.emit)
+
         self.top_hundred_container.requestCover.connect(self._on_cover_download_request)
+
+
+
 
 
     @asyncSlot(str)
@@ -115,26 +144,68 @@ class HomeInterface(KineticScrollArea):
     def add_trending_medias(self, data: List[AnilistMedia]):
         self.trending_container.add_medias(data)
 
+    def add_top_rated_medias(self, data: List[AnilistMedia]):
+        self.top_rated_container.add_medias(data)
+
     def add_top_hundred_medias(self, data: List[AnilistMedia]):
         self.top_hundred_container.add_medias(data)
 
     def add_latest_added_medias(self, data: List[AnilistMedia]):
         self.latest_added_container.add_medias(data)
 
-    def add_hero_banner(self, page_index: int, title: str, description: str,
-                        genres: List[str], color: QColor, banner_image: str):
-        if isinstance(banner_image, str):
-            image = QPixmap(banner_image)
-        if image is not None:
-            image = image.scaled(self._banner_size, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                                 Qt.SmoothTransformation)
-            x = image.rect().center().x()
-            x = x - self._banner_size.width() // 2
-            image = image.copy(x, 0, self._banner_size.width(), self._banner_size.height())
-            gradient_image = create_gradient_pixmap(image, color, self._banner_size.width() // 3 + 200,
-                                                    self._banner_size.width() // 3)
+    def add_hero_banner_data(self, data: List[AnilistMedia]):
+        for index, item in enumerate(data):
+            media_id = item.id
+            title = item.title
+            media_title = title.romaji or title.english or title.native
+            description = item.description
+            genres = item.genres
+            banner_image = item.bannerImage or item.coverImage.extraLarge # URL
+            color = QColor(item.coverImage.color)
 
-        self.hero_container.set_info(page_index, title, description, genres, color, gradient_image)
+            # Store only data needed by add_hero_banner in correct order
+            self._hero_banner_map[banner_image] = (
+                index, media_id, media_title, description, genres, color
+            )
+
+            self._on_cover_download_request(banner_image)
+
+    def _on_hero_banner_downloaded(self, url: str, pixmap: QPixmap, path):
+        data = self._hero_banner_map.get(url) #tuple
+        if data:
+            self.add_hero_banner(*data, banner_image=path)
+
+    def add_hero_banner(self, page_index: int, media_id: int, title: str, description: str,
+                        genres: List[str], color: QColor, banner_image: Union[QPixmap, Path]):
+
+        if banner_image is not None:
+            # image =
+            pil_image = Image.open(banner_image)
+            width = self._banner_size.width()
+            height = self._banner_size.height()
+            padding = 300
+            offset = 200
+            ratio = width / height
+
+
+
+            start_rgba = (color.red(), color.green(), color.blue(), color.alpha())
+            end_rgba = (color.red(), color.green(), color.blue(), 0)
+
+
+            focused_image = detect_faces_and_crop(image_path=banner_image, target_ratio=ratio)
+            padding = focused_image.width//3
+
+            left_padded_image = add_padding(focused_image, 0, 0, 0, 0)
+            gradient_image = apply_left_gradient(left_padded_image, 50, padding+offset, start_rgba, end_rgba)
+            qimage = ImageQt.ImageQt(gradient_image)
+            self.hero_container.set_info(page_index, title, description, genres, color, qimage)
+
+    def get_card_query_builder(self) -> MediaQueryBuilder:
+        return MediaQueryBuilder().include_images().include_title()
+
+    # def set_card_query_builder(self, card_query_builder: MediaQueryBuilder):
+    #     self._card_query_builder = card_query_builder
 
     @asyncClose
     async def closeEvent(self, event: QCloseEvent):
@@ -195,6 +266,8 @@ def main():
     colors = ["#e49335", "#aed6e4", "#e4bb50", "#f15d78", "#e4c95d"]
 
     app = QApplication(sys.argv)
+    screen_geometry = app.primaryScreen().availableGeometry()
+    screen_geometry.setWidth(screen_geometry.width()-14)
 
     event_loop = QEventLoop(app)
     asyncio.set_event_loop(event_loop)
@@ -206,7 +279,7 @@ def main():
     # main_window = LandscapeContainer()
     # main_window = PortraitContainer()
     # main_window = WideLandscapeContainer()
-    main_window = HomeInterface()
+    main_window = HomeInterface(screen_geometry, MediaType.ANIME)
     main_window.show()
 
 

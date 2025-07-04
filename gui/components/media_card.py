@@ -5,8 +5,8 @@ from enum import Enum
 from pathlib import Path
 from typing import List, Union
 
-from PySide6.QtCore import Qt, QSize, QPropertyAnimation, QObject, QRect
-from PySide6.QtGui import QColor, QFont, QResizeEvent, QImage, QPixmap
+from PySide6.QtCore import Qt, QSize, QPropertyAnimation, QObject, QRect, Signal
+from PySide6.QtGui import QColor, QFont, QResizeEvent, QImage, QPixmap, QMouseEvent
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout, QFrame, QScrollArea, QWidget, \
     QGraphicsOpacityEffect, QLabel, QSizePolicy
 from loguru import logger
@@ -26,7 +26,7 @@ class MediaVariants(Enum):
     WIDE_LANDSCAPE = 2
 
 
-class MediaCard(ElevatedCardWidget):
+class MediaCard(CardWidget):
     COVER_SIZE = QSize(195, 270)
     MINI_COVER_SIZE = QSize(55, 76)
     DEFAULT_MARGIN = 9
@@ -38,14 +38,20 @@ class MediaCard(ElevatedCardWidget):
     STRONG_BODY_FONT_WEIGHT = QFont.Weight.DemiBold
     BODY_FONT_SIZE = 14
 
+    #signal
+    cardClicked = Signal(int, AnilistMedia)
+
     def __init__(self, variant: MediaVariants = MediaVariants.PORTRAIT, parent=None):
         super().__init__(parent)
+        self._press_pos = None
+        self._drag_threshold = 10  # pixels
         self._mal_id: int = None
         self._min_sizeHint = QSize(self.COVER_SIZE.width(), self.COVER_SIZE.height() + 50)
         self.variant = variant
         self.rating_color = QColor("green")
         self._is_loading = True
         self._media_id: int = None
+        self._media_data: AnilistMedia = None
         self._create_widgets()
         self._create_genre()
         self.setup_ui()
@@ -54,6 +60,7 @@ class MediaCard(ElevatedCardWidget):
 
     def _create_widgets(self):
         self.title_label = MultiLineElideLabel("Solo Leveling", 1, 17, QFont.Weight.DemiBold, parent=self)
+        self.title_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         # self.title_label.setStyleSheet("background-color:rgb(240, 240, 240);")
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.title_label.setContentsMargins(4, 0, 0, 0)
@@ -292,25 +299,30 @@ class MediaCard(ElevatedCardWidget):
             logger.warning(f"Media {media_id} has no ID")
 
         self.setMediaId(media_id)
+        self._media_data = data
         self.setMyAniListId(data.idMal)
 
         self.setTitle(data.title.romaji or "Unknown Title")
         self.description_label.setText(data.description or "No description available.")
 
         # Set rating and user count
-        average_score = data.score.average_score or 0
-        self.setRating(average_score)
+        score = data.score
+        if score:
+            average_score = score.average_score or score.mean_score or -1
+            self.setRating(average_score)
 
-        favourites = data.score.favourites or 0
-        self.setUsers(favourites)
+            favourites = score.favourites or score.popularity or -1
+            self.setUsers(favourites)
 
-        # Set status
-        status_value = data.info.status
-        self.setStatus(status_value)
+            # Set status
+        info = data.info
+        if info:
+            status_value = data.info.status
+            self.setStatus(status_value)
 
         # Set airing/publishing years
         start_year = data.startDate.year if data.startDate else None
-        end_year = data.endDate.year if data.endDate else None
+        end_year = data.endDate.year if data.endDate else datetime.datetime.today().year
         self.setYear(start_year, end_year)
 
         # Set media type and episode/chapter count
@@ -320,19 +332,20 @@ class MediaCard(ElevatedCardWidget):
         count = 0
         count_label = "unknown"
         if media_type == MediaType.MANGA:
-            count = data.chapters or 0
+            count = data.chapters or -1
             count_label = "chapters"
         elif media_type == MediaType.ANIME:
-            count = data.episodes or 0
+            count = data.episodes or -1
             count_label = "episodes"
         self.setMediaEpisodeChapters(count, count_label)
 
         # Set genres
-        dominant_color = data.coverImage.color
+        # dominant_color = data.coverImage.color
         dominant_color = QColor('red')
         if dominant_color:
             dominant_color = QColor(dominant_color)
         self.setGenre(data.genres or [], dominant_color)
+
 
         # Debug info
         # print(f"{count} {count_label}, {favourites} users, {average_score} score, status: {status_value}")
@@ -362,23 +375,26 @@ class MediaCard(ElevatedCardWidget):
     def setRating(self, rating: int):
         if rating is None:
             return
-        self.rating_label.setText(f"{rating}%")
-
+        self.rating_label.setText(f"{rating}%" if rating > 0 else "??%")
         if rating >= 75:
             color = QColor("green")
             str_icon = "\uf118"
         elif rating >= 50:
             color = QColor("orange")
             str_icon = "\uf11a"
-        else:
+        elif rating >= 0:
             color = QColor("red")
             str_icon = "\uf119"
+        else:
+            color = QColor("orange")
+            str_icon = "\uf11a"
         self.rating_icon.setIcon(FontAwesomeRegularIcon(str_icon).colored(color, color))
 
     def setUsers(self, users: int):
         if users is None:
             return
-        self.users_label.setText(f"{users} users")
+        users = f"{users} users" if users > 0 else "unknown"
+        self.users_label.setText(users)
 
     def setStatus(self, status: Union[str, MediaStatus]):
         if status is None:
@@ -397,6 +413,8 @@ class MediaCard(ElevatedCardWidget):
             return
         self.start_year = start_year
         self.end_year = end_year
+        start_year = start_year if start_year > 0 else "????"
+        end_year = end_year if end_year > 0 else "????"
         self.time_label.setText(f"{start_year}-{end_year}")
 
     def setMediaType(self, media_type: MediaType):
@@ -407,6 +425,7 @@ class MediaCard(ElevatedCardWidget):
     def setMediaEpisodeChapters(self, value: int, value_type: str):
         if value_type is None or value is None:
             return
+        value = value if value >= 0 else "???"
         self.media_episode_chapters.setText(f"{value} {value_type}")
 
     def setCover(self, cover: Union[Path, QPixmap]):
@@ -431,6 +450,25 @@ class MediaCard(ElevatedCardWidget):
     def minimumSizeHint(self, /):
         return self._min_sizeHint
 
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton:
+            self._press_pos = event.position()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton and self._press_pos:
+            release_pos = event.position()
+            distance = (release_pos - self._press_pos).manhattanLength()
+
+            if distance < self._drag_threshold:
+                print("Mouse Clicked!")
+                self.cardClicked.emit(self._media_id, self._media_data)
+                # handle your click action here
+            else:
+                print("Drag detected, ignoring click.")
+        self._press_pos = None
+        super().mouseReleaseEvent(event)
+
 
 class MediaRelationCard(CardWidget):
     COVER_SIZE = QSize(195, 270)
@@ -443,6 +481,8 @@ class MediaRelationCard(CardWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+
+
 
         self.cover_label = WaitingLabel()
         self.cover_label.setFixedSize(self.COVER_SIZE)
@@ -483,6 +523,8 @@ class MediaRelationCard(CardWidget):
         self.overlay_widget.move(0, self.height() - self.overlay_widget.height())
 
         self.overlay_widget.raise_()
+
+
 
 
 # Example usage

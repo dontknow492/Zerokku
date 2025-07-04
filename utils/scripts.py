@@ -1,13 +1,128 @@
 import os
+
+import numpy as np
 import sys
 from pathlib import Path
 from typing import List, Optional, Iterator, Union, Tuple
 
 from PySide6.QtCore import QRect, Qt, QMargins, QSize, QPointF
 from PySide6.QtGui import QPixmap, QPixmapCache, QImageReader, QColor, QPainter, QPen, QBrush, QGradient, \
-    QLinearGradient
+    QLinearGradient, QImage
 import re
 import ctypes
+from datetime import datetime
+from AnillistPython import MediaSeason
+
+import cv2
+from PIL import Image, ImageOps, ImageDraw, ImageQt
+
+
+def detect_faces_and_crop(image_path, target_ratio=16/9):
+    # Load image with OpenCV
+    img_cv = cv2.imread(image_path)
+    if img_cv is None:
+        raise FileNotFoundError(f"Image not found: {image_path}")
+
+    gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
+    face_cascade = cv2.CascadeClassifier(r"D:\Program\Zerokku\assets\lbpcascade_animeface.xml")
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+
+    img_pil = Image.open(image_path)
+    width, height = img_pil.size
+
+    # Compute desired crop width
+    crop_width = int(height * target_ratio)
+
+    # Clamp crop width to image width to avoid black padding
+    crop_width = min(crop_width, width)
+
+    if len(faces) == 0:
+        # No faces detected, fallback to center crop
+        left = (width - crop_width) // 2
+        right = left + crop_width
+        return img_pil.crop((left, 0, right, height))
+
+    # Get bounding box covering all detected faces
+    x_min = min(x for (x, y, w, h) in faces)
+    x_max = max(x + w for (x, y, w, h) in faces)
+    crop_center_x = (x_min + x_max) // 2
+
+    # Compute crop box
+    left = crop_center_x - crop_width // 2
+    left = max(0, min(left, width - crop_width))  # Keep in bounds
+    right = left + crop_width
+
+    return img_pil.crop((left, 0, right, height))
+
+def add_padding(image: Image.Image, left: int = 0, top: int = 0, right: int = 0, bottom: int=0, color=(0, 0, 0, 0)) -> Image.Image:
+    """
+    Adds padding to a PIL image.
+
+    Parameters:
+        image (PIL.Image): The input image.
+        left (int): Padding on the left.
+        top (int): Padding on the top.
+        right (int): Padding on the right.
+        bottom (int): Padding on the bottom.
+        color (tuple): Background color as an RGB tuple. Default is black.
+
+    Returns:
+        PIL.Image: New image with the specified padding.
+    """
+    return ImageOps.expand(image, border=(left, top, right, bottom), fill=color)
+
+def apply_left_gradient(image: Image.Image, start_width: int = 300, end_width: int = 500,
+                        start_color=(0, 0, 0, 255), end_color=(0, 0, 0, 0)) -> Image.Image:
+    """
+    Applies a hard fill up to start_width, then a horizontal gradient from start_width to end_width.
+
+    Parameters:
+        image (PIL.Image): The original image.
+        start_width (int): X-position where gradient starts (everything before is solid fill).
+        end_width (int): X-position where gradient ends.
+        start_color (tuple): RGBA color used for solid fill and gradient start.
+        end_color (tuple): RGBA color at the gradient end.
+
+    Returns:
+        PIL.Image: Modified image.
+    """
+    image = image.convert("RGBA")
+    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    # Step 1: Solid block from 0 to start_width
+    draw.rectangle([(0, 0), (start_width, image.height)], fill=start_color)
+
+    # Step 2: Gradient from start_width to end_width
+    gradient_width = max(1, end_width - start_width)
+    for x in range(start_width, end_width):
+        alpha = (x - start_width) / gradient_width
+        r = int(start_color[0] * (1 - alpha) + end_color[0] * alpha)
+        g = int(start_color[1] * (1 - alpha) + end_color[1] * alpha)
+        b = int(start_color[2] * (1 - alpha) + end_color[2] * alpha)
+        a = int(start_color[3] * (1 - alpha) + end_color[3] * alpha)
+
+        draw.line([(x, 0), (x, image.height)], fill=(r, g, b, a))
+
+    result = Image.alpha_composite(image, overlay)
+    return result.convert("RGB")  # or "RGBA" if transparency needed
+
+
+def get_current_season_and_year()->Tuple[MediaSeason, int]:
+    now = datetime.now()
+    month = now.month
+    year = now.year
+
+    if month in [1, 2, 3]:
+        season = MediaSeason.WINTER
+    elif month in [4, 5, 6]:
+        season = MediaSeason.SPRING
+    elif month in [7, 8, 9]:
+        season = MediaSeason.SUMMER
+    else:
+        season = MediaSeason.FALL
+
+    return season, year
 
 def get_cache_pixmap(self, path: Path) -> Optional[QPixmap]:
     key = str(path)  # Use string as key

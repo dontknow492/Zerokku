@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Union, Dict
 
 import sys
-from PySide6.QtCore import QSize, Qt, QMargins, QPoint, QRect, QTimer
+from PySide6.QtCore import QSize, Qt, QMargins, QPoint, QRect, QTimer, Signal
 from PySide6.QtGui import QFont, QCursor, QPixmap, QImage, QColor, QPainter, QLinearGradient, QResizeEvent
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QApplication, QGraphicsDropShadowEffect, QLayout, \
@@ -12,11 +12,11 @@ from qfluentwidgets import TransparentToolButton, TransparentPushButton, FluentI
     isDarkTheme, setTheme, Theme, FlowLayout, PipsPager, ComboBox
 from scipy.cluster.hierarchy import average
 
-from AnillistPython import MediaStatus, AnilistEpisode, MediaType
+from AnillistPython import MediaStatus, AnilistEpisode, MediaType, AnilistMedia, AnilistTag
 from gui.common import MyLabel, MultiLineElideLabel, WaitingLabel, MyImageLabel, KineticScrollArea, RoundedToolButton, \
     RoundedPushButton, AniStackedWidget
 from gui.components.watch_card import WatchCardVariant, WatchCard
-from gui.components import ViewMoreContainer
+from gui.components import ViewMoreContainer, WatchCardLandscapeSkeleton, WatchCardCoverSkeleton
 
 
 class SideBar(QWidget):
@@ -53,6 +53,9 @@ class EpisodeWidget(QWidget):
         self.duration: int = 0
         self.series_name = series_name
         self.episodes: Dict[QWidget, List[WatchCard]] = {}
+
+        self.episodes_skeleton = [WatchCardCoverSkeleton() for _ in range(9)]
+
         self.total_episodes: int = 0
         self.episode_index: int = 0
         self.perpage: int = perpage
@@ -76,6 +79,17 @@ class EpisodeWidget(QWidget):
         self.episode_stack = AniStackedWidget(self)
 
         self._init_ui()
+         #skeleton add
+        self.skeleton_widget = QWidget(self)
+        layout = FlowLayout(self.skeleton_widget)
+        for skeleton in self.episodes_skeleton:
+            layout.addWidget(skeleton)
+            layout.setContentsMargins(50, 0, 0, 0)
+            layout.setHorizontalSpacing(30)
+            layout.setVerticalSpacing(40)
+            skeleton.start()
+
+        self.episode_stack.addWidget(self.skeleton_widget)
 
     def _init_ui(self):
         nav_layout = QHBoxLayout(self.navigation_bar)
@@ -99,6 +113,14 @@ class EpisodeWidget(QWidget):
 
     def setEpisodes(self, episodes_data: list[AnilistEpisode],
                     type: MediaType, series_name: str, episodes: int, duration: int, default_cover: QPixmap):
+
+        #deleating skeleon
+        self.episode_stack.removeWidget(self.skeleton_widget)
+        self.skeleton_widget.setParent(None)
+        self.skeleton_widget.setVisible(False)
+        self.skeleton_widget.deleteLater()
+        self.episodes_skeleton.clear()
+
         self.is_anime = True if type == MediaType.ANIME else False
         self.title_label.setText("Episodes" if self.is_anime else "Chapters")
         self.total_episodes = episodes
@@ -196,6 +218,9 @@ class EpisodeWidget(QWidget):
         else:
             raise ValueError("Sort order must be 'ascending' or 'descending'")
 
+        if not  len(self.episodes.keys()):
+            return
+
         widget = self.episode_stack.currentWidget()
 
         if widget:
@@ -246,6 +271,9 @@ class EpisodeWidget(QWidget):
 class MediaPage(KineticScrollArea):
     COVER_SIZE = QSize(300, 450)
     BANNER_SIZE = None
+    #signal
+    requestImage = Signal(str)          # url
+    requestData = Signal(int)           # media id
     def __init__(self, available_screen: QRect, media_type: MediaType, parent=None):
         super().__init__(parent)
 
@@ -273,6 +301,7 @@ class MediaPage(KineticScrollArea):
 
         self.cover_label = WaitingLabel(parent=self)
         self.cover_label.setFixedSize(self.COVER_SIZE)
+        self.cover_label.start()
         self.cover_label.setBorderRadius(10, 10, 10, 10)
         # self.cover_label.start()
         self.cover_shadow_effect = QGraphicsDropShadowEffect(self.cover_label)
@@ -283,9 +312,9 @@ class MediaPage(KineticScrollArea):
 
         self.cover_label.setGraphicsEffect(self.cover_shadow_effect)
 
-        self.status_label_top = MyLabel("Fall 2025", parent=self)
-        self.title_label = MyLabel("My Dress Up Darling", 38, QFont.Weight.Bold, parent=self)
-        self.overview_label = MultiLineElideLabel("This is Overview", 8,  parent=self)
+        self.status_label_top = MyLabel("Unknown", parent=self)
+        self.title_label = MyLabel("Unknown title", 38, QFont.Weight.Bold, parent=self)
+        self.overview_label = MultiLineElideLabel("Unknown overview", 8,  parent=self)
         self.overview_label.setCursor(Qt.CursorShape.IBeamCursor)
         self.overview_label.setFont(self._body_font)
         self.duration_label = MyLabel("Duration", parent=self)
@@ -313,7 +342,7 @@ class MediaPage(KineticScrollArea):
         font = getFont(28, QFont.Weight.DemiBold)
         self.user_score.setFont(font)
         self.user_score.setTextVisible(True)
-        self.user_score.setValue(86)
+        self.user_score.setValue(0)
 
         font = getFont(18, QFont.Weight.DemiBold)
 
@@ -468,8 +497,42 @@ class MediaPage(KineticScrollArea):
         return side_bar
 
 
+    def setData(self, data: AnilistMedia):
+        title = data.title
+        self.setTitle(title.romaji or title.english or title.native)
+        self.setGenre(data.genres)
+        score = data.score
+        if score:
+            self.setMeanScore(score.mean_score)
+            self.setAverageScore(score.average_score)
 
+        self.setOverview(data.description)
+        cover_image = data.coverImage.extraLarge
+        banner_image = data.bannerImage or cover_image
+        episodes = data.episodes
 
+        #extra
+        info = data.info
+        if info:
+            self.setStatus(info.status)
+
+            # status = info.status
+            # format  = info.format
+            # source = info.source
+            # season = info.season
+
+        self.setStartDate(data.startDate)
+        self.setEndDate(data.endDate or -1)
+        self.setSynonyms(data.synonyms)
+
+        self.setTags(data.tags)
+
+    def setTags(self, tags: List[AnilistTag]):
+        for tag in tags:
+            if isinstance(tag, AnilistTag):
+                name = tag.name
+                if name:
+                    self._create_tag(name)
 
 
     def _create_genres(self, genres: List[str]):
@@ -484,14 +547,14 @@ class MediaPage(KineticScrollArea):
 
         self.genre_layout.addStretch(1)
 
-    def _create_tags(self, tags: List[Dict]):
-        for tag in tags:
-            name = tag["name"]
-            tag_id = tag["id"]
-            button = RoundedPushButton(name, parent=self)
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setFont(self._body_font)
-            self.tags_layout.addWidget(button)
+    def _create_tag(self, tag: str):
+        # for tag in tags:
+        name = tag["name"]
+        tag_id = tag["id"]
+        button = RoundedPushButton(name, parent=self)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setFont(self._body_font)
+        self.tags_layout.addWidget(button)
 
     def _create_synonyms(self, synonyms: List[str]):
         for syn in synonyms:
@@ -505,9 +568,13 @@ class MediaPage(KineticScrollArea):
         # self.side_bar.addLayout("Synonyms", self.synonyms_layout)
 
     def setTitle(self, title: str):
+        if title is None:
+            return
         self.title_label.setText(title.upper())
 
     def setRating(self, rating: int):
+        if rating is None:
+            rating = 0
         rating = min(max(0, rating), 100)
         self.user_score.setValue(rating)
 
@@ -515,6 +582,8 @@ class MediaPage(KineticScrollArea):
         self._create_genres(genres[:10])
 
     def setOverview(self, overview: str):
+        if overview is None:
+            return
         self.overview_label.setText(overview)
 
     def setCover(self, cover: Union[str, QPixmap, QImage]):
@@ -532,30 +601,44 @@ class MediaPage(KineticScrollArea):
     def setSynonyms(self, synonyms: List[str]):
         self._create_synonyms(synonyms)
 
-    def setTags(self, tags: List[Dict]):
-        self._create_tags(tags)
+    # def setTags(self, tags: List[Dict]):
+    #     self._create_tags(tags)
 
     def setStartDate(self, start_date: datetime):
+        if start_date is None:
+            return
         date_str = start_date.strftime("%B %d, %Y")
         self.start_date_label.setText(date_str)
 
     def setEndDate(self, end_date: datetime):
+        if end_date is None:
+            end_date = datetime.today()
         date_str = end_date.strftime("%B %d, %Y")
         self.end_date_label.setText(date_str)
 
     def setStatus(self, status: MediaStatus):
+        if status is None:
+            status = MediaStatus.RELEASING
         self.status_label.setText(str(status))
 
     def setPopularity(self, popularity: int):
+        if popularity is None:
+            popularity = "???"
         self.popularity_label.setText(str(popularity))
 
     def setFavorites(self, favorites: int):
+        if favorites is None:
+            favorites = "???"
         self.favorites_label.setText(str(favorites))
 
     def setAverageScore(self, average_score: int):
+        if average_score is None:
+            average_score = "???"
         self.average_score_label.setText(str(average_score))
 
     def setMeanScore(self, mean_score: int):
+        if mean_score is None:
+            mean_score = "???"
         self.mean_score_label.setText(str(mean_score))
 
 
@@ -597,34 +680,7 @@ class MediaPage(KineticScrollArea):
         )
 
 
-
-
-def pick_overlay_color(dominant: QColor) -> QColor:
-    h, s, v, _ = dominant.getHsv()
-
-    if 0 <= h < 30 or h >= 330:
-        return PREDEFINED_OVERLAYS["red"]
-    elif 30 <= h < 90:
-        return PREDEFINED_OVERLAYS["yellow"]
-    elif 90 <= h < 150:
-        return PREDEFINED_OVERLAYS["green"]
-    elif 150 <= h < 210:
-        return PREDEFINED_OVERLAYS["blue"]
-    elif 210 <= h < 270:
-        return PREDEFINED_OVERLAYS["purple"]
-    else:
-        return PREDEFINED_OVERLAYS["neutral"]
-
-
 if __name__ == '__main__':
-    PREDEFINED_OVERLAYS = {
-        "red": QColor(180, 50, 50, 200),
-        "green": QColor(50, 180, 100, 200),
-        "blue": QColor(50, 90, 180, 200),
-        "yellow": QColor(200, 180, 50, 200),
-        "purple": QColor(140, 70, 160, 200),
-        "neutral": QColor(60, 60, 60, 180),
-    }
     setTheme(Theme.DARK)
     media_type = MediaType.ANIME
     title = "My Dress Up Darling"
@@ -792,23 +848,23 @@ if __name__ == '__main__':
     main_page = MediaPage(screen_geometry, media_type)
     main_page.showMaximized()
 
-    main_page.setOverview(description)
-    main_page.setRating(rating)
-    main_page.setGenre(genres)
-    main_page.setTitle(title)
-    main_page.setCover(cover)
-    main_page.setSynonyms(synonyms)
-    main_page.setTags(tags)
-    main_page.setPopularity(popularity)
-    main_page.setFavorites(favourites)
-    main_page.setAverageScore(average_score)
-    main_page.setMeanScore(mean_score)
-    main_page.setStatus(status)
-    main_page.setStartDate(start_date)
-    main_page.setEndDate(end_date)
-    main_page.setBanner(banner)
-    main_page.setTopContainerColor(dominant_color)
-    main_page.setEpisode(episodes, [], duration)
+    # main_page.setOverview(description)
+    # main_page.setRating(rating)
+    # main_page.setGenre(genres)
+    # main_page.setTitle(title)
+    # main_page.setCover(cover)
+    # main_page.setSynonyms(synonyms)
+    # main_page.setTags(tags)
+    # main_page.setPopularity(popularity)
+    # main_page.setFavorites(favourites)
+    # main_page.setAverageScore(average_score)
+    # main_page.setMeanScore(mean_score)
+    # main_page.setStatus(status)
+    # main_page.setStartDate(start_date)
+    # main_page.setEndDate(end_date)
+    # main_page.setBanner(banner)
+    # main_page.setTopContainerColor(dominant_color)
+    # main_page.setEpisode(episodes, [], duration)
 
     QTimer.singleShot(2000, lambda :main_page.horizontalScrollBar().setMaximum(0))
 

@@ -334,6 +334,74 @@ class ReviewSkeleton(QWidget):
         self.comment_line_3_skeleton.loading = False
 
 
+class WatchCardCoverSkeleton(QWidget):
+    COVER_SIZE = QSize(320, 180)
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.cover_skeleton = SkimmerWidget(self)
+        self.cover_skeleton.setFixedSize(self.COVER_SIZE)
+
+        self.title_skeleton = SkimmerWidget(self)
+        self.title_skeleton.setFixedHeight(30)
+        self.body_skeleton = SkimmerWidget(self)
+        self.body_skeleton.setFixedHeight(20)
+
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.cover_skeleton)
+        layout.addWidget(self.title_skeleton)
+        layout.addWidget(self.body_skeleton)
+
+    def start(self):
+        self.cover_skeleton.loading = True
+        self.title_skeleton.loading = True
+        self.body_skeleton.loading = True
+
+    def stop(self):
+        self.cover_skeleton.loading = False
+        self.title_skeleton.loading = False
+        self.body_skeleton.loading = False
+
+class WatchCardLandscapeSkeleton(QWidget):
+    LANDSCAPE_SIZE = QSize(55, 76)
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.cover_skeleton = SkimmerWidget(self)
+        self.cover_skeleton.setFixedSize(self.LANDSCAPE_SIZE)
+
+        self.title_skeleton = SkimmerWidget(self)
+        self.title_skeleton.setFixedHeight(25)
+        # self.title_skeleton.setFixedWidth(400)
+        self.body_skeleton = SkimmerWidget(self)
+        self.body_skeleton.setFixedHeight(15)
+        # self.body_skeleton.setFixedWidth(100)
+
+
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.cover_skeleton, alignment=Qt.AlignmentFlag.AlignLeft)
+        vbox = QVBoxLayout()
+        vbox.addWidget(self.title_skeleton)
+        vbox.addWidget(self.body_skeleton)
+
+        layout.addLayout(vbox, stretch=1)
+
+    def start(self):
+        self.cover_skeleton.loading = True
+        self.title_skeleton.loading = True
+        self.body_skeleton.loading = True
+
+    def stop(self):
+        self.cover_skeleton.loading = False
+        self.title_skeleton.loading = False
+        self.body_skeleton.loading = False
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     widget = QWidget()
@@ -343,9 +411,11 @@ if __name__ == '__main__':
     # skeleton = MediaCardSkeletonDetailed()
     # skeleton = MediaCardSkeletonMinimal()
     # skeleton = MediaCardSkeletonLandscape()
-    skeleton = HeroContainerSkeleton()
+    # skeleton = HeroContainerSkeleton()
     # skeleton = MediaCardRelationSkeleton()
     # skeleton = ReviewSkeleton()
+    # skeleton = WatchCardCoverSkeleton()
+    skeleton = WatchCardLandscapeSkeleton()
 
     skeleton.start()
 

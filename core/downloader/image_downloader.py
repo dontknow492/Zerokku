@@ -18,6 +18,8 @@ from PySide6.QtGui import QPixmap, QPixmapCache
 from aiohttp import ClientConnectionError, ClientPayloadError, ClientResponseError, InvalidURL, ServerDisconnectedError, ClientSession
 from httpcore import NetworkError
 
+from cachetools import LRUCache
+
 # Configure logging
 
 VALID_IMAGE_FORMATS = {"png", "jpg", "jpeg", "bmp", "gif", "webp", "svg"}
@@ -31,6 +33,7 @@ class ChecksumMismatchError(Exception):
         super().__init__(f"Checksum mismatch: expected {expected}, got {actual}")
 
 class CacheManager(QObject):
+    _url_hash_cache = LRUCache(maxsize=200)
     def __init__(self, cache_dir: Path, max_size_mb: int = 100, expiry_days: int = 30):
         super().__init__()
         self.cache_dir = cache_dir
@@ -40,6 +43,7 @@ class CacheManager(QObject):
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         QPixmapCache.setCacheLimit(50 * 1024)  # 50MB in KB
         self._initialize_cache()
+
 
     def _initialize_cache(self):
         """Scan cache directory and build size metadata."""
@@ -54,9 +58,14 @@ class CacheManager(QObject):
         """
         return self.cache_dir / f"{url_hash}.{extension}"
 
+
     @staticmethod
     def hash_url(url: str) -> str:
-        return hashlib.sha256(url.encode()).hexdigest()
+        if url in CacheManager._url_hash_cache:
+            return CacheManager._url_hash_cache[url]
+        hashed = hashlib.sha256(url.encode()).hexdigest()
+        CacheManager._url_hash_cache[url] = hashed
+        return hashed
 
     async def store(self, url_hash: str, pixmap: QPixmap, extension: str, cache_in_memory: bool = True):
         """
@@ -71,7 +80,7 @@ class CacheManager(QObject):
         try:
             file_size = await asyncio.get_event_loop().run_in_executor(None, _save)
             self.current_size_mb += file_size / (1024 * 1024)
-            logger.info(f"Cached {cache_path} (Size: {file_size / 1024:.2f}KB)")
+            logger.trace(f"Cached {cache_path} (Size: {file_size / 1024:.2f}KB)")
 
             if self.current_size_mb > self.max_size_mb * 0.9:
                 await self.cleanup()
@@ -141,23 +150,36 @@ class CacheManager(QObject):
                 if cache_path.exists() and pixmap.load(str(cache_path)):
                     if cache_in_memory:
                         self.cache_to_memory(url_hash, pixmap)  # Populate memory cache
-                    logger.debug(f"Loaded from disk: {url}")
+                    logger.trace(f"Loaded from disk: {url}")
                     return pixmap
             return None
         except Exception as e:
             logger.error(f"Failed to retrieve {url}: {str(e)}")
             return None
 
+    # def get_cache_path(self, url: str):
+    #     url_hash = self.hash_url(url)
+    #     for ext in VALID_IMAGE_FORMATS:
+    #         cache_path = self.get_from_cache(url_hash, ext)
+    #         if cache_path.exists():
+    #             return cache_path
+    def check_in_cache(self, url: str) -> Optional[Path]:
+        url_hash = self.hash_url(url)
+        for ext in VALID_IMAGE_FORMATS:
+            cache_path = self.get_cache_path(url_hash, ext)
+            if cache_path.exists(): # Populate memory cache
+                return cache_path
+
     @staticmethod
     def cache_to_memory(url_hash: str, pixmap: QPixmap):
         QPixmapCache.insert(url_hash, pixmap)
-        logger.info(f"Added {url_hash} to memory cache")
+        logger.trace(f"Added {url_hash} to memory cache")
 
     @staticmethod
     def get_from_memory(url_hash: str)->Optional[QPixmap]:
         pixmap = QPixmap()
         if QPixmapCache.find(url_hash, pixmap):
-            logger.info(f"Found in memory {url_hash}")
+            logger.trace(f"Found in memory {url_hash}")
             return pixmap
         else:
             return None
@@ -173,7 +195,7 @@ class NetworkClient(QObject): # url, QPixmap
         self.session = aiohttp.ClientSession(timeout=self.timeout)
         self.max_bytes_per_sec = max_bytes_per_sec
 
-        logger.debug("Network client initialized")
+        logger.info("Network client initialized")
 
     async def download_image(self, url: str) -> Tuple[Optional[bytes], str, int]:
         """
@@ -182,7 +204,7 @@ class NetworkClient(QObject): # url, QPixmap
         :param url: The image URL.
         """
         retry_delay = 1  # Initial delay in seconds
-        logger.info(f"Starting download for URL: url")
+        logger.trace(f"Starting download for URL: url")
 
         for attempt in range(self.max_retries):
             try:
@@ -275,7 +297,7 @@ class NetworkClient(QObject): # url, QPixmap
 
 
 class ImageDownloader(QObject):
-    imageDownloaded = Signal(str, QPixmap)
+    imageDownloaded = Signal(str, QPixmap, Path) #url, pixmap, path
     downloadProgress = Signal(str, float)
     downloadError = Signal(str, int, str)
 
@@ -307,7 +329,8 @@ class ImageDownloader(QObject):
 
         # Check cache first
         if pixmap := self.cache.get_from_cache(url, cache_in_memory):
-            self.imageDownloaded.emit(url, pixmap)
+            path = self.cache.check_in_cache(url)
+            self.imageDownloaded.emit(url, pixmap, path)
             return
 
         logger.debug(f"Downloading {url}")
@@ -326,9 +349,10 @@ class ImageDownloader(QObject):
                 raise ValueError("Invalid image data")
 
             url_hash = CacheManager.hash_url(url)
+            path = self.cache.get_cache_path(url, extension)
             await self.cache.store(url_hash, pixmap, extension, cache_in_memory)
 
-            self.imageDownloaded.emit(url, pixmap)
+            self.imageDownloaded.emit(url, pixmap, path)
 
         except InvalidURL:
             self.downloadError.emit(url, 0, "Invalid URL. Please check the link.")
@@ -383,7 +407,7 @@ if __name__ == "__main__":
         url = "https://s4.anilist.co/file/anilistcdn/media/anime/banner/101922-33MtJGsUSxga.jpg"
         downloader = ImageDownloader()
         downloader.downloadProgress.connect(print)
-        downloader.imageDownloaded.connect(lambda : print("Image downloaded", url))
+        downloader.imageDownloaded.connect(lambda url, pixmap, path: print("path", url, path))
         await downloader.fetch(url, cache_in_memory=False)
 
     asyncio.run(main())
