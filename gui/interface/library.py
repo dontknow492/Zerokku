@@ -72,8 +72,11 @@ class LibraryInterface(QWidget):
         self.library_nav = LibraryNavigation(parent = self)
 
         self.sort_combobox = EnumComboBox(parent=self)
+        self.sort_combobox.setPlaceholderText("Sort by")
         self.order_combobox = EnumComboBox(parent=self)
+        self.order_combobox.setPlaceholderText("Order")
         self.grouping_combobox = EnumComboBox(parent=self)
+        self.grouping_combobox.setPlaceholderText("Grouping")
 
         self.type_stac = PopUpAniStackedWidget(parent=self) #anime/manga stack
         self.anime_view = CardContainer(parent=self)

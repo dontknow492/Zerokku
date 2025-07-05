@@ -125,8 +125,8 @@ class Format(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String)
 
-    animes: Mapped[List["Anime"]] = relationship("Anime", back_populates="formats", cascade="all, delete-orphan")
-    mangas: Mapped[List["Manga"]] = relationship("Manga", back_populates="formats", cascade="all, delete-orphan")
+    animes: Mapped[List["Anime"]] = relationship("Anime", back_populates="format", cascade="all, delete-orphan")
+    mangas: Mapped[List["Manga"]] = relationship("Manga", back_populates="format", cascade="all, delete-orphan")
 
 
 class CountryOfOrigin(Base):
@@ -221,13 +221,12 @@ class Trailer(Base):
     """Represents a Trailer of anime/manga in the system."""
     __tablename__ = 'trailers'
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     anime_id: Mapped[Optional[int]] = mapped_column(ForeignKey('anime.id'), nullable=True, index=True)
     manga_id: Mapped[Optional[int]] = mapped_column(ForeignKey('manga.id'), nullable=True, index=True)
     site: Mapped[str] = mapped_column(String)  # e.g., "YouTube"
-    trailer_id: Mapped[str] = mapped_column(String)  # e.g., YouTube video ID
+    video_id: Mapped[str] = mapped_column(String)  # e.g., YouTube video ID
     thumbnail: Mapped[Optional[str]] = mapped_column(String)
-    type: Mapped[Optional[str]] = mapped_column(String)  # e.g., "PV", "Teaser"
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     anime: Mapped[Optional['Anime']] = relationship("Anime", back_populates="trailers")
@@ -271,7 +270,7 @@ class Character(Base):
 class MediaCharacter(Base):
     __tablename__ = "media_characters"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     anime_id: Mapped[Optional[int]] = mapped_column(ForeignKey("anime.id"), nullable=True)
     manga_id: Mapped[Optional[int]] = mapped_column(ForeignKey("manga.id"), nullable=True)
     character_id: Mapped[int] = mapped_column(ForeignKey("characters.id"), nullable=False)
@@ -406,7 +405,7 @@ class Episode(Base):
     description: Mapped[str] = mapped_column(String)
     air_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
-    anime: Mapped['Anime'] = relationship("Anime", back_populates="episodes")
+    anime: Mapped["Anime"] = relationship("Anime", back_populates="episodes_list")
 
 
 class Chapter(Base):
@@ -419,7 +418,7 @@ class Chapter(Base):
     description: Mapped[str] = mapped_column(String)
     release_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
-    manga: Mapped['Manga'] = relationship("Manga", back_populates="chapters")
+    manga: Mapped['Manga'] = relationship("Manga", back_populates="chapters_list")
 
 
 
@@ -434,18 +433,27 @@ class MediaBase:
     title_native: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    
+
+    #image
+    cover_image_extra_large: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    cover_image_large: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    cover_image_medium: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    cover_image_color: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    banner_image: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+
     # date
     start_date: Mapped[Optional[Date]] = mapped_column(Date, nullable=True)
     end_date: Mapped[Optional[Date]] = mapped_column(Date, nullable=True)
     
     #score
+    mean_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     average_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     popularity: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     favourites: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    average_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
     
-    is_adult: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    isAdult: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     synonyms: Mapped[Optional[List[str]]] = mapped_column(JSON, default=[])
 
     # Foreign keys
@@ -507,7 +515,7 @@ class Anime(MediaBase, Base):
     )
 
 
-class Manga(Base):
+class Manga(MediaBase, Base):
     __tablename__ = "manga"
     
     chapters: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -515,6 +523,7 @@ class Manga(Base):
 
     # Relationships
     status: Mapped[Optional["Status"]] = relationship("Status", back_populates="mangas")
+    season: Mapped[Optional["Season"]] = relationship("Season", back_populates="mangas")
     format: Mapped[Optional["Format"]] = relationship("Format", back_populates="mangas")
     country_of_origins: Mapped[Optional["CountryOfOrigin"]] = relationship("CountryOfOrigin", back_populates="mangas")
     source_material: Mapped[Optional["SourceMaterial"]] = relationship("SourceMaterial", back_populates="mangas")
@@ -536,6 +545,9 @@ class Manga(Base):
     )
 
     media_character_links: Mapped[List["MediaCharacter"]] = relationship(back_populates="manga")
+    trailers: Mapped[List["Trailer"]] = relationship("Trailer", back_populates="manga")
+
+    chapters_list: Mapped[List["Chapter"]] = relationship("Chapter", back_populates="manga")
 
     outgoing_relations: Mapped[List["MediaRelation"]] = relationship(
         "MediaRelation", foreign_keys="[MediaRelation.from_manga_id]", back_populates="from_manga"

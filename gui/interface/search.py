@@ -151,8 +151,8 @@ class SearchBar(QWidget):
         self.format_filter = EnumComboBox(MediaFormat, parent = self)
         self.format_filter.setPlaceholderText("Format")
 
-        self.sort_filter = EnumComboBox(MediaSort, parent= self, add_default=True, default_text="Default")
-        self.sort_filter.setPlaceholderText("Sort By")
+        self.sort_filter = EnumComboBox(MediaSort, parent= self, add_default=False, default_text="Default")
+        # self.sort_filter.setPlaceholderText("Sort By")
 
         self.advance_filter_button = ToolButton(FluentIcon.MENU, self)
         self.filter_button = PrimaryPushButton(FluentIcon.FILTER, "Filter", self)
@@ -851,7 +851,7 @@ def main():
     asyncio.ensure_future(window.init_image_downloader())
 
     # Search signal triggers adding media cards after 2 seconds delay
-    call = 1
+    # call = 1
     # def on_search():
     #     if call < 3:
     #         QTimer.singleShot(2000, lambda: window.add_medias(cards))

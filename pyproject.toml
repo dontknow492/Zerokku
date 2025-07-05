@@ -19,6 +19,7 @@ dependencies = [
     "pyside6-fluent-widgets[full]>=1.8.1",
     "qasync>=0.27.1",
     "requests>=2.32.4",
+    "scipy-stubs==1.16.0.2",
     "sqlalchemy[asyncio]>=2.0.41",
     "superqt>=0.7.5",
     "yt-dlp>=2025.6.9",
