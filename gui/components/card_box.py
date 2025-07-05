@@ -7,7 +7,7 @@ from PySide6.QtGui import QIcon
 from gui.common import AnimatedToggle
 from qfluentwidgets import (SimpleCardWidget, BodyLabel, SubtitleLabel, ComboBox, Slider, SpinBox,
                             DoubleSpinBox, ExpandSettingCard, FluentIconBase, RadioButton, FluentIcon, SettingCard)
-from PySide6.QtWidgets import QHBoxLayout, QApplication, QVBoxLayout, QButtonGroup, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QApplication, QVBoxLayout, QButtonGroup, QWidget, QLabel
 
 
 class HeaderSettingCard(SettingCard):
@@ -138,6 +138,11 @@ class SpinCard(ExpandSettingCard):
             self.slider.blockSignals(True)
             self.slider.setValue(value)
             self.slider.blockSignals(False)
+
+    def setTitle(self, title: str):
+        label = self.findChild(QLabel, name='titleLabel')
+        if label is not None:
+            label.setText(title)
 
 
 

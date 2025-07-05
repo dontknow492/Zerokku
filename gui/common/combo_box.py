@@ -6,6 +6,8 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget, QApplication
 from qfluentwidgets import ComboBox, Action, CheckableMenu, RoundMenu
 
+from AnillistPython import MediaType
+
 
 class EnumComboBox(ComboBox):
     enumChanged = Signal(Enum)
@@ -41,8 +43,9 @@ class EnumComboBox(ComboBox):
             value = self._format_str(str(item.value))
             self.enum_map[value] = item
             self.addItem(value)
+            # print(value, item)
 
-    def getCurrentEnum(self) -> Optional[Enum]:
+    def getCurrentEnum(self) -> Optional[Type[Enum]]:
         """Return the selected Enum value, or None if default/placeholder is selected."""
         text = self.currentText()
         if (self._has_default_text or self.text() == self._default_text) and text == self._placeholderText:
@@ -67,12 +70,15 @@ if __name__ == '__main__':
         ONGOING = 1
         COMPLETED = 2
         HIATUS = 3
+
+    data = {1: Status.ONGOING, 2: Status.COMPLETED, 3: Status.HIATUS}
+    # print(data.get(1))
     app = QApplication(sys.argv)
 
     menu = RoundMenu()
 
 
-    menu = EnumComboBox(Status)
+    menu = EnumComboBox(MediaType)
     # Add actions one by one, Action inherits from QAction and accepts icons of type FluentIconBase
 
     # widget = DropDownWidgetBase()

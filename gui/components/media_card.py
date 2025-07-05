@@ -11,13 +11,14 @@ from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout, QFrame, QS
     QGraphicsOpacityEffect, QLabel, QSizePolicy
 from loguru import logger
 from qfluentwidgets import SubtitleLabel, BodyLabel, FlowLayout, ScrollArea, TransparentToolButton, \
-    setTheme, Theme, CardWidget, setCustomStyleSheet, SimpleCardWidget, ElevatedCardWidget
+    setTheme, Theme, CardWidget, setCustomStyleSheet, SimpleCardWidget, ElevatedCardWidget, ThemeColor
 
 from gui.common import (WaitingLabel, OutlinedChip, MyLabel, SkimmerWidget, SkeletonMode, KineticScrollArea,
                         MultiLineElideLabel)
 from utils import FontAwesomeRegularIcon, get_scale_factor
 
-from AnillistPython import AnilistMedia, AnilistScore, AnilistMediaInfo, MediaType, MediaStatus, AnilistTitle
+from AnillistPython import AnilistMedia, AnilistScore, AnilistMediaInfo, MediaType, MediaStatus, AnilistTitle, \
+    MediaCoverImage
 
 
 class MediaVariants(Enum):
@@ -53,7 +54,7 @@ class MediaCard(CardWidget):
         self._media_id: int = None
         self._media_data: AnilistMedia = None
         self._create_widgets()
-        self._create_genre()
+        # self._create_genre()
         self.setup_ui()
 
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -106,7 +107,7 @@ class MediaCard(CardWidget):
         self.media_type = MyLabel("Manga", self.BODY_FONT_SIZE, self.STRONG_BODY_FONT_WEIGHT)
         self.media_episode_chapters = MyLabel("56 Chapters", self.BODY_FONT_SIZE, self.STRONG_BODY_FONT_WEIGHT)
 
-    def _create_genre(self, color: QColor = QColor("red")):
+    def _create_genre(self, color: QColor):
         self.genre_layout.takeAllWidgets()
         for genre in self.genres:
             button = OutlinedChip(genre[:15], primary_color=color, border_radius=14)
@@ -340,11 +341,17 @@ class MediaCard(CardWidget):
         self.setMediaEpisodeChapters(count, count_label)
 
         # Set genres
-        # dominant_color = data.coverImage.color
-        dominant_color = QColor('red')
-        if dominant_color:
-            dominant_color = QColor(dominant_color)
-        self.setGenre(data.genres or [], dominant_color)
+
+
+        genres = data.genres
+        if genres:
+            dominant_color = data.coverImage.color if data.coverImage else None
+            if dominant_color:
+                dominant_color = QColor(dominant_color)
+                logger.critical(f"Media has  dominant color: {dominant_color}")
+            else:
+                dominant_color = ThemeColor.PRIMARY.color()
+            self.setGenre(data.genres or [], dominant_color)
 
 
         # Debug info
@@ -437,7 +444,7 @@ class MediaCard(CardWidget):
         else:
             self.cover_label.setScaledSize(self.COVER_SIZE)
 
-    def setGenre(self, genres: List[str], color: QColor = QColor("red")):
+    def setGenre(self, genres: List[str], color: QColor = ThemeColor.PRIMARY.color()):
         if genres is None or len(genres) == 0:
             return
         self.genres = genres
@@ -528,48 +535,22 @@ class MediaRelationCard(CardWidget):
 
 
 # Example usage
-if __name__ == '__main__1':
+if __name__ == '__main__':
     app = QApplication(sys.argv)
-    ex = MediaRelationCard()
+    ex = MediaCard(MediaVariants.LANDSCAPE)
+    genres = ["Action", "Aventure", "fantasy"]
+    color = QColor.fromRgbF(0.839216, 0.262745, 0.101961, 1.000000)
+
+    data = AnilistMedia(
+        id = 1,
+        title=AnilistTitle("2", "2", "2"),
+        genres=genres,
+        coverImage= MediaCoverImage(color = color.name())
+    )
+    test = QColor(color.name())
+    print(test)
+    ex.setData(data)
     ex.show()
     sys.exit(app.exec())
 
-if __name__ == "__main__":
-    import os
-    import json
-    import time
-    from AnillistPython import parse_searched_media
 
-    scale_factor = get_scale_factor()
-    os.environ["QT_SCALE_FACTOR"] = f"{scale_factor}"
-    setTheme(Theme.DARK)
-    app = QApplication(sys.argv)
-
-    scroll = KineticScrollArea()
-    widget = QWidget()
-    layout = QVBoxLayout(widget)
-    scroll.setWidget(widget)
-    scroll.setWidgetResizable(True)
-
-    start = time.time()
-    with open(r"D:\Program\Zerokku\demo\data.json", "r", encoding="utf-8") as data:
-        result = json.load(data)
-    print(f"{time.time() - start} seconds")
-    start = time.time()
-    datas = parse_searched_media(result, None)
-    print(f"{time.time() - start} seconds")
-    start = time.time()
-    pixmap = QPixmap(r"D:\Program\Zerokku\demo\cover.jpg")
-
-    for data in datas:
-        card = MediaCard(variant=MediaVariants.LANDSCAPE)
-        card.setData(data)
-        card.setCover(pixmap)
-        layout.addWidget(card)
-        card.set_variant(MediaVariants.PORTRAIT)
-        card.set_variant(MediaVariants.LANDSCAPE)
-
-    print(f"{time.time() - start} seconds")
-
-    scroll.show()
-    sys.exit(app.exec())

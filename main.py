@@ -1,4 +1,5 @@
 import asyncio
+from typing import Optional
 
 from PySide6.QtCore import QRect, QTimer
 from PySide6.QtGui import QIcon, QColor
@@ -97,7 +98,7 @@ class MainWindow(MSFluentWindow):
     def _signal_handler(self):
         page = 1
         per_page = 6
-        #anime home
+
         self.anime_home_interface.downloaderInitialized.connect(
             lambda: self.get_trending(MediaType.ANIME, page, per_page))
         self.anime_home_interface.downloaderInitialized.connect(
@@ -106,11 +107,12 @@ class MainWindow(MSFluentWindow):
             lambda: self.get_top_rated(MediaType.ANIME, page, per_page))
         self.anime_home_interface.downloaderInitialized.connect(
             lambda: self.get_top_medias(MediaType.ANIME, page, per_page))
+
         self.anime_home_interface.downloaderInitialized.connect(
             lambda: self.get_hero_media(MediaType.ANIME, 6)
         )
 
-        #manga home
+        # #manga home
         self.manga_home_interface.downloaderInitialized.connect(
             lambda: self.get_trending(MediaType.MANGA, page, per_page))
         self.manga_home_interface.downloaderInitialized.connect(
@@ -179,8 +181,10 @@ class MainWindow(MSFluentWindow):
         builder.include_dates()
         builder.include_score()
         builder.include_info()
+        builder.include_genres()
         if media_type == MediaType.ANIME:
             data = await self.anilist_helper.get_top_popular(builder, MediaType.ANIME, page, per_page)
+            # logger.critical(data[0].coverImage)
             self.anime_home_interface.add_top_hundred_medias(data)
         elif media_type == MediaType.MANGA:
             data = await self.anilist_helper.get_top_popular(builder, MediaType.MANGA, page, per_page)
@@ -196,6 +200,12 @@ class MainWindow(MSFluentWindow):
             builder = self.manga_home_interface.get_card_query_builder()
             data = await self.anilist_helper.get_top_popular(builder, MediaType.MANGA, page, per_page)
             self.manga_home_interface.add_top_rated_medias(data)
+
+    @asyncSlot(MediaType, MediaQueryBuilder, SearchQueryBuilder, str, int, int)
+    async def search(self, media_type: MediaType, fields: MediaQueryBuilder, filters: SearchQueryBuilder,
+                    query: Optional[str], page: int, per_page: int = 5):
+        data = await self.anilist_helper.search(media_type, fields, filters, query, page, per_page)
+        self.search_interface.add_medias(data)
 
 
 

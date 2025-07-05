@@ -7,18 +7,23 @@ import json
 from collections import defaultdict
 from typing import Optional, List, Tuple, Set, Dict
 
-from PySide6.QtCore import Signal
-from PySide6.QtGui import QFont, Qt
+from PySide6.QtCore import Signal, QTimer
+from PySide6.QtGui import QFont, Qt, QCloseEvent
 from loguru import logger
+from qasync import asyncSlot, QEventLoop, asyncClose
+
+import asyncio
 
 from AnillistPython import MediaFormat, MediaSeason, MediaStatus, MediaSource, MediaSort, MediaType, MediaGenre, \
-    SearchQueryBuilder, MediaQueryBuilder
+    SearchQueryBuilder, MediaQueryBuilder, parse_searched_media, AnilistMedia, AnilistSearchResult
 
-from PySide6.QtWidgets import QWidget, QApplication, QHBoxLayout, QVBoxLayout, QGridLayout, QButtonGroup
+from PySide6.QtWidgets import QWidget, QApplication, QHBoxLayout, QVBoxLayout, QGridLayout, QButtonGroup, QSizePolicy, \
+    QSpacerItem
 from qfluentwidgets import Slider, SearchLineEdit, ComboBox, CheckableMenu, ToolButton, FluentIcon, PrimaryPushButton, \
     FlyoutViewBase, FlowLayout, TogglePushButton, CheckBox, TransparentPushButton, LineEdit, Flyout, \
-    FlyoutAnimationType, TransparentToggleToolButton
+    FlyoutAnimationType, TransparentToggleToolButton, FluentIconBase
 
+from core import ImageDownloader
 from gui.common import MyLabel, EnumComboBox, TriStateButton, KineticScrollArea
 from gui.components import SpinCard, CardContainer, MediaVariants
 from utils import IconManager
@@ -75,21 +80,44 @@ class FilterNavigation(QWidget):
         button_group.addButton(gird_view_button)
         button_group.addButton(landscape_view_button)
 
+        #chip view
+        self.chip_container = KineticScrollArea(self)
+        self.chip_container.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        container = QWidget(self)
+        container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Policy.Minimum)
+        self.chip_container_layout = QHBoxLayout(container)
+        self.chip_container_layout.setContentsMargins(0, 0, 0, 0)
+        self.chip_container.setFixedHeight(40)
+        self.chip_container.setWidget(container)
+        self.chip_container.setWidgetResizable(True)
+
+        self.chip_spacer = QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum)
 
         #init ui
         # self.main_layout.addWidget(sort_combo, alignment=Qt.AlignmentFlag.AlignRight)
-        self.main_layout.addStretch()
+        self.main_layout.addWidget(self.chip_container)
         self.main_layout.addWidget(portrait_view_button)
         self.main_layout.addWidget(landscape_view_button)
         self.main_layout.addWidget(gird_view_button)
 
-    def add_chip(self, type: str, value: str, icon = FluentIcon.TAG):
+    def add_chip(self, type: str, value: str, icon: FluentIconBase = FluentIcon.TAG):
         logger.info(f"Adding chip '{type}': '{value}' to filter navigation")
+        self.chip_container_layout.removeItem(self.chip_spacer)
         name = f"{type}: {value}"
         button = PrimaryPushButton(icon, name, self)
         self.chips[name] = button
-        self.main_layout.insertWidget(0, button, alignment=Qt.AlignmentFlag.AlignLeft)
+        self.chip_container_layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignLeft)
         button.clicked.connect(lambda: self.remove_chip(type, value))
+
+        self.chip_container_layout.addItem(self.chip_spacer)
+
+
+    def clear_chips(self):
+        for button in self.chips.values():
+            button.setVisible(False)
+            button.setParent(None)
+            self.chip_container_layout.removeWidget(button)
+            button.deleteLater()
 
     def remove_chip(self, type: str, value: str):
         name = f"{type}: {value}"
@@ -97,11 +125,11 @@ class FilterNavigation(QWidget):
         if button:
             self.main_layout.removeWidget(button)
             button.deleteLater()
+            self.chips.pop(name, None)
 
 
 class SearchBar(QWidget):
     searchSignal = Signal(str)
-    filterSignal = Signal()
     def __init__(self, tags_path: str, parent=None):
         super().__init__(parent)
 
@@ -110,6 +138,7 @@ class SearchBar(QWidget):
 
         self.search_bar = SearchLineEdit()
         self.search_bar.setPlaceholderText("Search anime/manga")
+
         self.type_filter = EnumComboBox(MediaType, parent = self, add_default=False)
 
         self.genre_filter = EnumComboBox(MediaGenre, parent = self)
@@ -143,7 +172,22 @@ class SearchBar(QWidget):
     def _signal_handler(self):
         self.advance_filter_button.clicked.connect(self._on_advance_filter)
         self.search_bar.searchSignal.connect(self.searchSignal.emit)
-        self.filter_button.clicked.connect(self.filterSignal.emit)
+        self.filter_button.clicked.connect(lambda: self.searchSignal.emit(self.search_bar.text()))
+
+        self.type_filter.enumChanged.connect(self._on_type_change)
+
+
+    def _on_type_change(self, media_type: MediaType):
+        # logger.debug(f"Media type: {media_type}")
+        if hasattr(self, "advance_filter"):
+            self.advance_filter.set_media_type(media_type)
+        if media_type == MediaType.ANIME:
+            self.format_filter.setVisible(True)
+        elif media_type == MediaType.MANGA:
+            self.format_filter.setVisible(False)
+        else:
+            logger.warning(f"Unknown media type: {media_type}")
+
 
     def _on_advance_filter(self):
         if not hasattr(self, "advance_filter"):
@@ -158,6 +202,12 @@ class SearchBar(QWidget):
             widget_rect = self.advance_filter.frameGeometry()
             widget_rect.moveCenter(center)
             self.advance_filter.move(widget_rect.topLeft())
+
+            self.advance_filter.set_media_type(self.type_filter.getCurrentEnum())
+
+            #signal
+            self.type_filter.enumChanged.connect(self.advance_filter.set_media_type)
+
         self.advance_filter.show()
 
     def get_options(self):
@@ -185,6 +235,10 @@ class SearchBar(QWidget):
                 payload.update(adv_options)
 
         return payload
+
+    def get_media_type(self)->MediaType:
+        return self.type_filter.getCurrentEnum()
+
 
 class TagSelector(QWidget):
     tagStateChanged = Signal(int, CheckBox) #state, button
@@ -394,11 +448,10 @@ class TagSelector(QWidget):
         self._filter_tags("")
 
 
-
-
 class AdvanceFilter(FlyoutViewBase):
     def __init__(self, tags_path: str, parent=None):
         super().__init__(parent)
+        self.media_type = MediaType.ANIME
         layout = QGridLayout(self)
 
         # ... Enum filters ...
@@ -468,20 +521,46 @@ class AdvanceFilter(FlyoutViewBase):
 
         layout.setRowStretch(5, 1)
 
+
+    def set_media_type(self, media_type: MediaType):
+        logger.debug(f"Set media type: {media_type}")
+        self.media_type = media_type
+        if media_type == MediaType.ANIME:
+            self.source_box.setVisible(True)
+            self.season_box.setVisible(True)
+            self.max_duration_slider.setVisible(True)
+            self.min_duration_slider.setVisible(True)
+
+            self.min_episode_slider.setTitle("Minimum Episode")
+            self.max_episode_slider.setTitle("Maximum Episode")
+        elif media_type == MediaType.MANGA:
+
+            self.source_box.setVisible(False)
+            self.season_box.setVisible(False)
+            self.max_duration_slider.setVisible(False)
+            self.min_duration_slider.setVisible(False)
+
+            self.min_episode_slider.setTitle("Minimum Chapter")
+            self.max_episode_slider.setTitle("Maximum Chapter")
+
+
     def get_options(self):
         payload = dict()
         #status, source, season, fixed year
-        season = self.season_filter.getCurrentEnum()
-        if season:
-            payload["season"]= season
+
 
         status = self.airing_filter.getCurrentEnum()
         if status:
             payload["status"]= status
 
-        source = self.source_filter.getCurrentEnum()
-        if source:
-            payload["source"]= source
+        if self.media_type == MediaType.ANIME:
+            source = self.source_filter.getCurrentEnum()
+            if source:
+                payload["source"]= source
+
+            season = self.season_filter.getCurrentEnum()
+            if season:
+                payload["season"] = season
 
 
         # Genre and tag filters
@@ -514,91 +593,161 @@ class AdvanceFilter(FlyoutViewBase):
             payload["max_episodes"] = self.max_episode_slider.value()
 
         # Duration range filter
-        if self.min_duration_slider.value() > self.duration_range[0]:
-            payload["min_duration"] = self.min_duration_slider.value()
-        if self.max_duration_slider.value() < self.duration_range[1]:
-            payload["max_duration"] = self.max_duration_slider.value()
+        if self.media_type == MediaType.ANIME:
+            if self.min_duration_slider.value() > self.duration_range[0]:
+                payload["min_duration"] = self.min_duration_slider.value()
+            if self.max_duration_slider.value() < self.duration_range[1]:
+                payload["max_duration"] = self.max_duration_slider.value()
 
 
         return payload
 
 
 class SearchInterface(QWidget):
+    PER_PAGE = 12
+    searchSignal = Signal(MediaType, MediaQueryBuilder, SearchQueryBuilder, str, int, int) #query, builder, page, perpage
     def __init__(self, tags_path: str,  parent=None):
         super().__init__(parent)
 
+        self.image_downloader: Optional[ImageDownloader] = None
+
+        self.page = 1 # used for pacification
+        self.builder: SearchQueryBuilder = None
+        self._fields_builder: MediaQueryBuilder = MediaQueryBuilder()
+        self.options: Dict = {}
+        self.query: str = None
+
+
         self.search_bar = SearchBar(tags_path, self)
         self.filter_nav = FilterNavigation(parent = self)
-        self.filter_nav.add_chip("Search", "")
+        # self.filter_nav.add_chip("Search", "")
         self.view_stack = CardContainer(parent = self)
         self.view_stack.layout().setContentsMargins(0, 0, 0, 0)
+        self.view_stack.hide_loading()
+        # self.view_stack.show_loading()
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.search_bar)
         layout.addWidget(self.filter_nav)
-        layout.addWidget(self.view_stack)
+        layout.addWidget(self.view_stack, stretch=1)
 
+
+        self._init_required_fields()
 
         self._signal_handler()
 
+    @asyncSlot()
+    async def init_image_downloader(self):
+        self.image_downloader = ImageDownloader()
+        self.image_downloader.imageDownloaded.connect(self.view_stack.on_cover_downloaded)
+
+    def _init_required_fields(self):
+        self._fields_builder.include_title().include_images(include_extra_large=True, include_color=True).include_score()
+        self._fields_builder.include_description().include_genres().include_dates().include_info()
+
+
     def _signal_handler(self):
         self.search_bar.searchSignal.connect(self._on_search)
-        self.search_bar.filterSignal.connect(self._on_filter)
+        self.filter_nav.variantChanged.connect(self.view_stack.switch_view)
+        self.view_stack.endReached.connect(self._on_end_reached)
+        self.view_stack.switching.connect(self._on_switching)
+        self.view_stack.switchingFinished.connect(self._on_switching_finished)
+
+        self.view_stack.requestCover.connect(self._on_cover_request)
+
+    @asyncSlot(str)
+    async def _on_cover_request(self, url):
+        # return
+        if not isinstance(self.image_downloader, ImageDownloader):
+            await self.init_image_downloader()
+        await self.image_downloader.fetch(url)
+
+    def _emit_signal(self, query: str, builder: SearchQueryBuilder, page: int, per_page: int):
+        self.searchSignal.emit(self.search_bar.get_media_type(), self._fields_builder, builder, query, page, per_page)
+
+    def _on_end_reached(self):
+        self.page += 1
+        self._emit_signal(self.query, self.builder, self.page+ 1, self.PER_PAGE)
+
+    def _on_switching(self):
+        self.filter_nav.setEnabled(False)
+
+    def _on_switching_finished(self):
+        self.filter_nav.setEnabled(True)
 
     def _on_search(self, search_value):
         logger.debug(f"Search signal received")
-        logger.debug(f"Search value received: {self.search_bar.get_options()}")
-
-    def _on_filter(self):
-        logger.debug(f"Filter signal received")
+        self.view_stack.show_loading()
         options = self.search_bar.get_options()
-        logger.debug(f"Search value received: {options}")
-        self._build_query(options)
+        search_value = search_value if search_value not in ["", None] else None
+
+        # Only skip re-query if both search and filters are the same
+        if search_value == self.query and self.options == options:
+            logger.debug(f"Same search filters so ignoring: ")
+            return
+
+        builder = self._build_query(options)
+
+        self.builder = builder
+        self.page = 1  # Reset for search
+        self.query = search_value
+        self.options = options
+
+
+
+        self._emit_signal(search_value, self.builder, self.page, self.PER_PAGE)
+
+
+        logger.critical(f"Builder_hash: {hash(self.builder)}")
+
+
 
     def _build_query(self, filters: Dict):
-        """{'search': 'ad', 'type': <MediaType.ANIME: 'ANIME'>, 'genre': <MediaGenre.ACTION: 'Action'>,
-        'format': <MediaFormat.MOVIE: 'MOVIE'>, 'included_genres': ['Mahou Shoujo'],
-        'included_tags': ['Male Protagonist'], 'excluded_genres': ['Thriller'],
-        'excluded_tags': ['Primarily Male Cast'], 'min_year': 1971, 'max_year': 2025,
-        'min_episodes': 2, 'max_episodes': 1999, 'min_duration': 2, 'max_duration': 169}
-        """
         logger.debug(f"Building query based on filters: {filters}")
+        self.filter_nav.clear_chips()
         builder = SearchQueryBuilder()
 
         # Basic filters
-        if "search" in filters:
-            builder.set_search(filters["search"])
+        if value := filters.get("search"):
+            builder.set_search(value)
+            self.filter_nav.add_chip("Search", value, FluentIcon.SEARCH)
 
-        if "type" in filters:
-            builder.set_type(filters["type"])
+        if value := filters.get("type"):
+            builder.set_type(value)
+            self.filter_nav.add_chip("Type", value)
 
-        if "genre" in filters:
-            builder.set_genres([filters["genre"],])
+        if value := filters.get("genre"):
+            builder.set_genres([value])
+            self.filter_nav.add_chip("Genre", value)
 
-        if "format" in filters:
-            builder.set_formats([filters["format"],])
+        if value := filters.get("format"):
+            builder.set_formats([value])
+            self.filter_nav.add_chip("Format", value)
 
-        if "status" in filters:
-            builder.set_status([filters["status"],])
+        if value := filters.get("status"):
+            builder.set_status([value])
+            self.filter_nav.add_chip("Status", value)
 
-        if "season" in filters:
-            builder.set_season(filters["season"])
+        if value := filters.get("season"):
+            builder.set_season(value)
+            self.filter_nav.add_chip("Season", value)
 
-        if "source" in filters:
-            builder.set_sources([filters["source"],])
+        if value := filters.get("source"):
+            builder.set_sources([value])
+            self.filter_nav.add_chip("Source", value)
 
         # Advanced filters
-        if "included_genres" in filters:
-            builder.set_genres(filters["included_genres"])
+        if value := filters.get("included_genres"):
+            builder.set_genres(include=value)
 
-        if "excluded_genres" in filters:
-            builder.set_genres(exclude= filters["excluded_genres"])
+        if value := filters.get("excluded_genres"):
+            builder.set_genres(exclude=value)
 
-        if "included_tags" in filters:
-            builder.set_tags(filters["included_tags"])
+        if value := filters.get("included_tags"):
+            builder.set_tags(include=value)
 
-        if "excluded_tags" in filters:
-            builder.set_tags(exclude=filters["excluded_tags"])
+        if value := filters.get("excluded_tags"):
+            builder.set_tags(exclude=value)
 
         min_year = filters.get("min_year")
         max_year = filters.get("max_year")
@@ -609,26 +758,68 @@ class SearchInterface(QWidget):
 
         if min_year or max_year:
             builder.set_year_range(min_year, max_year)
+            self.filter_nav.add_chip("Year Range", f"{min_year}-{max_year}", FluentIcon.CALENDAR)
 
         if min_episodes or max_episodes:
-            type = filters.get("type")
-            if type == MediaType.ANIME:
+            if (media_type := filters.get("type")) == MediaType.ANIME:
                 builder.set_episodes_range(min_episodes, max_episodes)
-            elif type == MediaType.MANGA:
+                self.filter_nav.add_chip("Ep Range", f"{min_episodes}-{max_episodes}")
+            elif media_type == MediaType.MANGA:
                 builder.set_chapters_range(min_episodes, max_episodes)
+                self.filter_nav.add_chip("Ch Range", f"{min_episodes}-{max_episodes}")
+
         if min_duration or max_duration:
             builder.set_duration_range(min_duration, max_duration)
+            self.filter_nav.add_chip("Duration Range", f"{min_duration}-{max_duration}", FluentIcon.DATE_TIME)
+
+        return builder
+
+    def add_medias(self, data: AnilistSearchResult):
+        if not isinstance(data, AnilistSearchResult):
+            logger.error(f"add_medias expects AnilistSearchResult but got {type(data)}")
+            return
+        is_increment = False if self.page <= 1 else True
+        medias = data.medias
+        self.view_stack.add_medias(medias, is_increment)
+
+    def get_media_field_builder(self)->MediaQueryBuilder:
+        return self._fields_builder
+
+    @asyncClose
+    async def closeEvent(self, event: QCloseEvent):
+        if isinstance(self.image_downloader, ImageDownloader):
+            await self.image_downloader.close()
 
 
-        logger.debug(f"Building query with filters: {builder.build(MediaQueryBuilder())}")
+async def main():
+    def on_search():
+        QTimer.singleShot(2000, lambda: window.add_medias(cards))
 
-
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
     tags_path = r"D:\Program\Zerokku\assets\tags.json"
+    with open(r"D:\Program\Zerokku\demo\data.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    cards = parse_searched_media(data, MediaType.ANIME, None, None, None)
+
+    app = QApplication(sys.argv)
+
+    event_loop = QEventLoop(app)
+    asyncio.set_event_loop(event_loop)
+
+    app_close_event = asyncio.Event()
+    app.aboutToQuit.connect(app_close_event.set)
+
+
     # main = AdvanceFilter()
-    main = SearchInterface(tags_path)
+    window = SearchInterface(tags_path)
+    await window.init_image_downloader()
+    # print(window.get_media_field_builder().build())
+    window.searchSignal.connect(lambda: on_search())
+    window.searchSignal.connect(print)
     # filter = SearchBar()
     # filter.show()
-    main.show()
-    sys.exit(app.exec())
+    window.show()
+    with event_loop:
+        event_loop.run_until_complete(app_close_event.wait())
+
+if __name__ == "__main__":
+    asyncio.run(main())

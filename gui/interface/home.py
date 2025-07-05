@@ -11,7 +11,7 @@ from loguru import logger
 from qasync import QEventLoop, asyncSlot, asyncClose
 from qfluentwidgets import Theme, setTheme
 
-from AnillistPython import AnilistMedia, parse_searched_media, MediaType, MediaQueryBuilder
+from AnillistPython import AnilistMedia, parse_searched_media, MediaType, MediaQueryBuilder, AnilistSearchResult
 from core import ImageDownloader
 from gui.common import KineticScrollArea, MyLabel
 from utils import apply_gradient_overlay_pixmap, create_left_gradient_pixmap, add_margins_pixmap, \
@@ -141,20 +141,35 @@ class HomeInterface(KineticScrollArea):
     def add_continue_watching_medias(self, data: List[AnilistMedia]):
         self.continue_container.add_medias(data)
 
-    def add_trending_medias(self, data: List[AnilistMedia]):
-        self.trending_container.add_medias(data)
+    def add_trending_medias(self, data: AnilistSearchResult):
+        if not isinstance(data, AnilistSearchResult):
+            return
+        medias = data.medias
+        self.trending_container.add_medias(medias)
 
-    def add_top_rated_medias(self, data: List[AnilistMedia]):
-        self.top_rated_container.add_medias(data)
+    def add_top_rated_medias(self, data: AnilistSearchResult):
+        if not isinstance(data, AnilistSearchResult):
+            return
+        medias = data.medias
+        self.top_rated_container.add_medias(medias)
 
-    def add_top_hundred_medias(self, data: List[AnilistMedia]):
-        self.top_hundred_container.add_medias(data)
+    def add_top_hundred_medias(self, data: AnilistSearchResult):
+        if not isinstance(data, AnilistSearchResult):
+            return
+        medias = data.medias
+        self.top_hundred_container.add_medias(medias)
 
-    def add_latest_added_medias(self, data: List[AnilistMedia]):
-        self.latest_added_container.add_medias(data)
+    def add_latest_added_medias(self, data: AnilistSearchResult):
+        if not isinstance(data, AnilistSearchResult):
+            return
+        medias = data.medias
+        self.latest_added_container.add_medias(medias)
 
-    def add_hero_banner_data(self, data: List[AnilistMedia]):
-        for index, item in enumerate(data):
+    def add_hero_banner_data(self, data: AnilistSearchResult):
+        if not isinstance(data, AnilistSearchResult):
+            return
+        medias = data.medias
+        for index, item in enumerate(medias):
             media_id = item.id
             title = item.title
             media_title = title.romaji or title.english or title.native
@@ -202,7 +217,7 @@ class HomeInterface(KineticScrollArea):
             self.hero_container.set_info(page_index, title, description, genres, color, qimage)
 
     def get_card_query_builder(self) -> MediaQueryBuilder:
-        return MediaQueryBuilder().include_images().include_title()
+        return MediaQueryBuilder().include_images(include_color=True).include_title()
 
     # def set_card_query_builder(self, card_query_builder: MediaQueryBuilder):
     #     self._card_query_builder = card_query_builder

@@ -321,28 +321,29 @@ class ImageDownloader(QObject):
         parsed = urlparse(url)
         return parsed.scheme in {'http', 'https'} and bool(parsed.netloc)
 
-    async def fetch(self, url: str, cache_in_memory: bool = True) -> None:
+    async def fetch(self, url: str, cache_in_memory: bool = True) ->Optional[Path]:
         if not self.is_valid_image_url(url):
             logger.debug(f"Invalid image url: {url}")
             self.downloadError.emit(url, 0, "Invalid URL")
-            return
+            return None
 
         # Check cache first
         if pixmap := self.cache.get_from_cache(url, cache_in_memory):
             path = self.cache.check_in_cache(url)
             self.imageDownloaded.emit(url, pixmap, path)
-            return
+            return path
 
         logger.debug(f"Downloading {url}")
         async with self.semaphore:
-            await self._download_and_cache(url, cache_in_memory)
+            path = await self._download_and_cache(url, cache_in_memory)
+            return path
 
-    async def _download_and_cache(self, url: str, cache_in_memory: bool):
+    async def _download_and_cache(self, url: str, cache_in_memory: bool)->Optional[Path]:
         try:
             image_data, extension, status = await self.network.download_image(url)
             if not image_data:
                 self.downloadError.emit(url, status, f"HTTP {status} error")
-                return
+                return None
 
             pixmap = QPixmap()
             if not pixmap.loadFromData(image_data):
@@ -353,47 +354,48 @@ class ImageDownloader(QObject):
             await self.cache.store(url_hash, pixmap, extension, cache_in_memory)
 
             self.imageDownloaded.emit(url, pixmap, path)
+            return path
 
         except InvalidURL:
             self.downloadError.emit(url, 0, "Invalid URL. Please check the link.")
             logger.error("Invalid URL: %s", url)
-            return
+            return None
 
         except ClientResponseError as e:
             self.downloadError.emit(url, e.status, f"Server error (HTTP {e.status}). Please try again later.")
             logger.error("ClientResponseError for %s: %s (status=%d)", url, str(e), e.status)
-            return
+            return None
 
         except ClientPayloadError:
             self.downloadError.emit(url, 0, "Image data is corrupted or incomplete.")
             logger.error("ClientPayloadError for %s", url)
-            return
+            return None
 
         except SSLError:
             self.downloadError.emit(url, 0,
                                     "Secure connection failed. The server’s security certificate may be invalid.")
             logger.error("SSLError for %s", url)
-            return
+            return None
 
         except socket.gaierror:
             self.downloadError.emit(url, 0, "Couldn’t find the server. Please check your internet or URL.")
             logger.error("Socket.gaierror for %s", url)
-            return
+            return None
 
         except OSError as e:
             self.downloadError.emit(url, 0, "A system error occurred while downloading the image.")
             logger.error("OSError for %s: %s", url, str(e))
-            return
+            return None
 
         except aiohttp.ClientError as e:
             self.downloadError.emit(url, 0, "A network error occurred. Please try again later.")
             logger.error("ClientError for %s: %s", url, str(e))
-            return
+            return None
 
         except Exception as e:
             self.downloadError.emit(url, 0, "An unexpected error occurred. Please try again.")
             logger.exception("Unexpected error for %s: %s", url, str(e))
-            return
+            return None
 
     async def close(self) -> None:
         await self.network.close()
