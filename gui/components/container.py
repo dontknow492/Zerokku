@@ -54,6 +54,7 @@ class BaseMediaContainer(QWidget):
         self._is_chunk_loading = False
         self.cards: List[MediaCard] = []
         self.card_pixmap_map: Dict[str, MediaCard] = {}
+        self.pixmap_card_map: Dict[MediaCard, str] =  {} #reverse look up
         self.skeletons = [self.SkeletonType() for _ in range(skeletons)]
         self.container_layout = self.LayoutType()
         self.setLayout(self.container_layout)
@@ -105,14 +106,18 @@ class BaseMediaContainer(QWidget):
         if not url or not card:
             return
         self.card_pixmap_map[url] = card
+        self.pixmap_card_map[card] = url
         self.requestCover.emit(url)
 
     def on_download_finished(self, url: str, pixmap: QPixmap, path: Path):
-        if card := self.card_pixmap_map.get(url):
+        if card := self.card_pixmap_map.pop(url, None):
+            self.pixmap_card_map.pop(card, None) #removing from reverse map
             if pixmap.isNull():
                 card.setCover(path)
             else:
                 card.setCover(pixmap)
+
+
 
     def add_medias(self, data: List[AnilistMedia]):
         """Starts chunked creation and insertion of media cards."""
@@ -248,11 +253,29 @@ class BaseMediaContainer(QWidget):
             card = self.cards.pop()
             self.removeWidget(card, is_delete)
             removed_cards.append(card)
+
+        self.card_pixmap_map.clear() # map clean
         return removed_cards
 
     def removeWidget(self, widget: QWidget, is_delete: bool = False):
+        # Remove from layout
         self.container_layout.removeWidget(widget)
+
+        # Clean up from tracking structures
+        if isinstance(widget, MediaCard):
+            try:
+                self.cards.remove(widget)
+            except ValueError:
+                pass
+
+            # Remove from reverse map and forward map
+            url = self.pixmap_card_map.pop(widget, None)
+            if url:
+                self.card_pixmap_map.pop(url, None)
+
+        # Unparent and optionally schedule deletion
         widget.setParent(None)
+
         if is_delete:
             widget.deleteLater()
 
@@ -444,7 +467,7 @@ class ViewMoreContainer(QWidget):
         self.requestCover.emit(url)
 
     def on_download_finished(self, url: str, pixmap: QPixmap, path: Path) -> None:
-        if card := self.card_pixmap_map.get(url):
+        if card := self.card_pixmap_map.pop(url, None):
             if pixmap.isNull():
                 card.setCover(path)
             else:
@@ -771,8 +794,14 @@ class CardContainer(QWidget):
         else:
             self._media_index = 0
             self._media_data = data
+            # self.remove_cards(True)
+            self.scrollTo(QPoint(0, 0), 100) #reseting scroll
         self._load_next_batch()
         # QTimer.singleShot(50, self._check_scroll_and_continue)
+
+    def remove_cards(self, delete: bool):
+        current_container = self.get_variant_container(self.variant)
+        current_container.remove_medias(delete)
 
     def _load_next_batch(self):
         batch_size = self.get_batch_size()
@@ -801,6 +830,7 @@ class CardContainer(QWidget):
             next_container.cardLoaded.connect(self.switchingFinished.emit)
 
             cards = previous_container.remove_medias(False)
+            cards.reverse()
             #todo: add if loaded card is less then batch size, then add media
             batch_size = self.get_batch_size()
             logger.debug(f"Adding cards: {len(cards)}")

@@ -93,6 +93,7 @@ class MainWindow(MSFluentWindow):
         self._signal_handler()
         await self.anime_home_interface.connect_image_downloader()
         await self.manga_home_interface.connect_image_downloader()
+        await self.search_interface.init_image_downloader()
 
 
     def _signal_handler(self):
@@ -129,6 +130,9 @@ class MainWindow(MSFluentWindow):
         #card clicked signal
         self.anime_home_interface.cardClicked.connect(self.on_card_clicked)
         self.manga_home_interface.cardClicked.connect(self.on_card_clicked)
+
+        #search
+        self.search_interface.searchSignal.connect(self.search)
 
     @asyncSlot()
     async def get_hero_media(self, media_type: MediaType, items: int = 1):
@@ -204,6 +208,7 @@ class MainWindow(MSFluentWindow):
     @asyncSlot(MediaType, MediaQueryBuilder, SearchQueryBuilder, str, int, int)
     async def search(self, media_type: MediaType, fields: MediaQueryBuilder, filters: SearchQueryBuilder,
                     query: Optional[str], page: int, per_page: int = 5):
+
         data = await self.anilist_helper.search(media_type, fields, filters, query, page, per_page)
         self.search_interface.add_medias(data)
 

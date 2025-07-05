@@ -132,6 +132,8 @@ class HomeInterface(KineticScrollArea):
     @asyncSlot(str)
     async def _on_cover_download_request(self, url: str):
         # logger.debug(f"Downloading {url}")
+        if not isinstance(self.image_downloader, ImageDownloader):
+            await self.connect_image_downloader()
         await self.image_downloader.fetch(url, True)
 
     def update_screen_geometry(self, geometry: QRect):

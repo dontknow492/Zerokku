@@ -1,45 +1,53 @@
-import asyncio
 import os
+from typing import Union, Callable, Awaitable, Coroutine, Any
+
+import asyncio
+import hashlib
+import os
+import pickle
 from pathlib import Path
-from typing import List, Optional, Dict, Union, Callable, Awaitable, Coroutine, Any
+from typing import Optional
+from typing import Union, Callable, Awaitable, Coroutine, Any
 
 import httpx
 import portalocker
 import time
-from PySide6.QtCore import Signal, QObject, QTimer
 from gql.transport.exceptions import TransportError
 from graphql import GraphQLError
+from loguru import logger
 from qasync import asyncSlot
 
 from AnillistPython import (
-    AniListClient, MediaType, AnilistMedia, MediaQueryBuilder, SearchQueryBuilder, AnilistSearchResult
+    AniListClient, MediaType, MediaQueryBuilder, SearchQueryBuilder, AnilistSearchResult
 )
-import pickle
-from loguru import logger
+
+from cachetools import LRUCache
 
 
-import asyncio
-import time
-import pickle
-import hashlib
-from typing import List, Optional
-from pathlib import Path
+search_cache = LRUCache(maxsize=100)
 
-from PySide6.QtCore import Signal, QObject, QTimer
-from qasync import asyncSlot
 
-from AnillistPython import (
-    AniListClient, MediaType, AnilistMedia, MediaQueryBuilder
-)
-from loguru import logger
+def build_search_key(
+    media_type: MediaType,
+    builder: MediaQueryBuilder,
+    filters: SearchQueryBuilder,
+    query: str,
+    page: int,
+    per_page: int,
+) -> str:
+    # Assumes SearchQueryBuilder has a `key()` method or you serialize its config
+    query = query if query is not None else ""
+    key = f"{media_type.value}_{hash(builder)}_{hash(filters)}_{hash(query)}_{page}_{per_page}"
+    # logger.debug(f"key: {key}")
+    return hashlib.sha256(key.encode()).hexdigest()
 
 class AnilistHelper:
     TTL_RULES = {
-        "popular": 7 * 24 * 3600,    # 1 week
+        "popular": 7 * 24 * 3600,  # 1 week
         "top_rated": 7 * 24 * 3600,  # 1 week
-        "hero_banner": 24 * 3600,    # 1 day
-        "trending": 24 * 3600,       # 1 day
-        "latest": 2 * 3600,          # 2 hours
+        "hero_banner": 24 * 3600,  # 1 day
+        "trending": 24 * 3600,  # 1 day
+        "latest": 2 * 3600,  # 2 hours
     }
 
     def __init__(self, url: str = "https://graphql.anilist.co", cache_dir: str = "./anilist_joblib_cache"):
@@ -100,7 +108,7 @@ class AnilistHelper:
         return (time.time() - cached_at) > ttl_seconds
 
     def _make_cache_filename(self, prefix: str, builder: Union[MediaQueryBuilder, SearchQueryBuilder],
-                            media_type: MediaType, page: int, per_page: int) -> Path:
+                             media_type: MediaType, page: int, per_page: int) -> Path:
         key = f"{prefix}_{hash(builder)}_{media_type.value}_{page}_{per_page}"
         logger.critical(f"Cache key: {key}, hash: {hash(builder)}")
         filename = hashlib.sha256(key.encode()).hexdigest() + ".pkl"
@@ -154,7 +162,7 @@ class AnilistHelper:
         return result["data"] if result else None
 
     async def get_trending(self, fields: MediaQueryBuilder, media_type: MediaType, page: int = 1, per_page: int = 5) -> \
-    Optional[AnilistSearchResult]:
+            Optional[AnilistSearchResult]:
         ttl = self.TTL_RULES["trending"]
         filename = self._make_cache_filename("trending", fields, media_type, page, per_page)
 
@@ -176,7 +184,7 @@ class AnilistHelper:
         return result["data"] if result else None
 
     async def get_latest(self, fields: MediaQueryBuilder, media_type: MediaType, page: int = 1, per_page: int = 5) -> \
-    Optional[AnilistSearchResult]:
+            Optional[AnilistSearchResult]:
         ttl = self.TTL_RULES["latest"]
         filename = self._make_cache_filename("latest", fields, media_type, page, per_page)
 
@@ -184,9 +192,10 @@ class AnilistHelper:
             self._load_or_fetch(filename, ttl, lambda: self.client.get_latest(fields, media_type, page, per_page)),
             context="get_latest"
         )
+        return result["data"] if result else None
 
     async def get_top_rated(self, fields: MediaQueryBuilder, media_type: MediaType, page: int = 1, per_page: int = 5) -> \
-    Optional[AnilistSearchResult]:
+            Optional[AnilistSearchResult]:
         ttl = self.TTL_RULES["top_rated"]
         filename = self._make_cache_filename("top_rated", fields, media_type, page, per_page)
 
@@ -195,20 +204,45 @@ class AnilistHelper:
             context="get_top_rated"
         ))["data"] if self else None
 
+    async def search(
+        self,
+        media_type: MediaType,
+        fields: MediaQueryBuilder,
+        filters: SearchQueryBuilder,
+        query: Optional[str],
+        page: int,
+        per_page: int
+    ) -> Optional[AnilistSearchResult]:
+        logger.debug(f"Searching for - type: {media_type}, {fields}, {filters}, query: {query}, page: {page},"
+                     f" perpage:{per_page}")
 
-    async def search(self, media_type: MediaType, fields: MediaQueryBuilder, filters: SearchQueryBuilder, query,
-                     page: int, per_page: int) -> Optional[AnilistSearchResult]:
+        cache_key = build_search_key(media_type, fields, filters, query, page, per_page)
+        # print(cache_key)
+        # return
+
+        if cache_key in search_cache:
+            logger.debug(f"Search cache hit: {cache_key}")
+            return search_cache[cache_key]
+
+        logger.debug(f"Search cache miss: {cache_key}")
+
         if media_type == MediaType.MANGA:
-            return await self._safe_call(
+            result = await self._safe_call(
                 self.client.search_manga(fields, filters, query, page, per_page),
                 context="search_manga"
             )
         elif media_type == MediaType.ANIME:
-            return await self._safe_call(
+            result = await self._safe_call(
                 self.client.search_anime(fields, filters, query, page, per_page),
                 context="search_anime"
             )
-        return None
+        else:
+            return None
+
+        if result:
+            search_cache[cache_key] = result
+
+        return result
 
     def clear_cache(self, prefix: Optional[str] = None) -> None:
         """Clear all cache files or those matching a specific prefix."""
@@ -220,7 +254,10 @@ class AnilistHelper:
         except Exception as e:
             logger.warning(f"Failed to clear cache: {e}")
 
+
 async def main():
+    import  copy
+    from timeit import timeit
     helper = AnilistHelper()
     await helper.connect()
 
@@ -230,10 +267,21 @@ async def main():
     media_type = MediaType.MANGA
     pages = 1
 
+    # print(copy.copy(fields).included_options())
+
     # Example: Get trending anime page 1 (should cache for 1 day)
     # trending_anime = await helper.get_trending(fields, MediaType.ANIME, page=1, per_page=1)
-    trending_anime = await helper.get_hero_banner(fields, search, media_type, pages)
-    print(trending_anime)
+    # print(repr(search))
+    #lru cache
+    trending_anime = await helper.search(media_type, fields, search, None, pages, 1)
+    trending_2 = await helper.search(media_type, fields, search, None, pages, 1)
+    trending_3 = await helper.search(media_type, fields, search, None, pages, 1)
+    # print(repr(search))
+
+    # key = build_search_key(media_type, fields, search, "", pages, per_page=5)
+    # key_2 = build_search_key(media_type, fields, search, "", pages, per_page=5)
+    # print(key, key_2)
+    # print(key, key_2)
 
 
 if __name__ == "__main__":

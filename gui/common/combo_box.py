@@ -78,7 +78,10 @@ if __name__ == '__main__':
     menu = RoundMenu()
 
 
-    menu = EnumComboBox(MediaType)
+    menu = EnumComboBox(MediaType, add_default=False)
+    enum = menu.getCurrentEnum()
+    print(type(enum))
+    print(enum.value)
     # Add actions one by one, Action inherits from QAction and accepts icons of type FluentIconBase
 
     # widget = DropDownWidgetBase()

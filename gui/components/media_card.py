@@ -348,7 +348,7 @@ class MediaCard(CardWidget):
             dominant_color = data.coverImage.color if data.coverImage else None
             if dominant_color:
                 dominant_color = QColor(dominant_color)
-                logger.critical(f"Media has  dominant color: {dominant_color}")
+                # logger.critical(f"Media has  dominant color: {dominant_color}")
             else:
                 dominant_color = ThemeColor.PRIMARY.color()
             self.setGenre(data.genres or [], dominant_color)

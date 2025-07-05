@@ -10,9 +10,10 @@ from typing import Optional, List, Tuple, Set, Dict
 from PySide6.QtCore import Signal, QTimer
 from PySide6.QtGui import QFont, Qt, QCloseEvent
 from loguru import logger
-from qasync import asyncSlot, QEventLoop, asyncClose
+from qasync import asyncSlot, QEventLoop, asyncClose, run
 
 import asyncio
+
 
 from AnillistPython import MediaFormat, MediaSeason, MediaStatus, MediaSource, MediaSort, MediaType, MediaGenre, \
     SearchQueryBuilder, MediaQueryBuilder, parse_searched_media, AnilistMedia, AnilistSearchResult
@@ -114,10 +115,13 @@ class FilterNavigation(QWidget):
 
     def clear_chips(self):
         for button in self.chips.values():
-            button.setVisible(False)
-            button.setParent(None)
-            self.chip_container_layout.removeWidget(button)
-            button.deleteLater()
+            try:
+                button.setVisible(False)
+                button.setParent(None)
+                self.chip_container_layout.removeWidget(button)
+                button.deleteLater()
+            except:
+                pass
 
     def remove_chip(self, type: str, value: str):
         name = f"{type}: {value}"
@@ -228,6 +232,10 @@ class SearchBar(QWidget):
         media_format = self.format_filter.getCurrentEnum()
         if media_format is not None:
             payload["format"] = media_format
+
+        sort = self.sort_filter.getCurrentEnum()
+        if sort is not None:
+            payload["sort"] = sort
 
         if hasattr(self, "advance_filter"):
             adv_options = self.advance_filter.get_options()
@@ -609,6 +617,7 @@ class SearchInterface(QWidget):
     def __init__(self, tags_path: str,  parent=None):
         super().__init__(parent)
 
+        self._hasNextPage = True
         self.image_downloader: Optional[ImageDownloader] = None
 
         self.page = 1 # used for pacification
@@ -660,14 +669,17 @@ class SearchInterface(QWidget):
         # return
         if not isinstance(self.image_downloader, ImageDownloader):
             await self.init_image_downloader()
-        await self.image_downloader.fetch(url)
+        await self.image_downloader.fetch(url, True)
 
     def _emit_signal(self, query: str, builder: SearchQueryBuilder, page: int, per_page: int):
         self.searchSignal.emit(self.search_bar.get_media_type(), self._fields_builder, builder, query, page, per_page)
 
     def _on_end_reached(self):
-        self.page += 1
-        self._emit_signal(self.query, self.builder, self.page+ 1, self.PER_PAGE)
+        if self._hasNextPage:
+            self.page += 1
+            self._emit_signal(self.query, self.builder, self.page+ 1, self.PER_PAGE)
+        else:
+            self.view_stack.hide_loading()
 
     def _on_switching(self):
         self.filter_nav.setEnabled(False)
@@ -685,6 +697,8 @@ class SearchInterface(QWidget):
         if search_value == self.query and self.options == options:
             logger.debug(f"Same search filters so ignoring: ")
             return
+
+        self.view_stack.remove_cards(True)
 
         builder = self._build_query(options)
 
@@ -712,32 +726,40 @@ class SearchInterface(QWidget):
             builder.set_search(value)
             self.filter_nav.add_chip("Search", value, FluentIcon.SEARCH)
 
-        if value := filters.get("type"):
-            builder.set_type(value)
-            self.filter_nav.add_chip("Type", value)
+        if media_type := filters.get("type"):
+            builder.set_type(media_type)
+            self.filter_nav.add_chip("Type", media_type.value)
 
-        if value := filters.get("genre"):
-            builder.set_genres([value])
-            self.filter_nav.add_chip("Genre", value)
+        main_genre = None
+        if genre := filters.get("genre"):
+            builder.set_genres([genre])
+            self.filter_nav.add_chip("Genre", genre.value)
+            main_genre = genre
 
-        if value := filters.get("format"):
-            builder.set_formats([value])
-            self.filter_nav.add_chip("Format", value)
+        if media_format := filters.get("format"):
+            builder.set_formats([media_format])
+            self.filter_nav.add_chip("Format", media_format.value)
 
-        if value := filters.get("status"):
-            builder.set_status([value])
-            self.filter_nav.add_chip("Status", value)
+        if status := filters.get("status"):
+            builder.set_status([status])
+            self.filter_nav.add_chip("Status", status.value)
 
-        if value := filters.get("season"):
-            builder.set_season(value)
-            self.filter_nav.add_chip("Season", value)
+        if season := filters.get("season"):
+            builder.set_season(season)
+            self.filter_nav.add_chip("Season", season.value)
 
-        if value := filters.get("source"):
-            builder.set_sources([value])
-            self.filter_nav.add_chip("Source", value)
+        if source := filters.get("source"):
+            builder.set_sources([source])
+            self.filter_nav.add_chip("Source", source.value)
+
+        if sort_option := filters.get("sort"):
+            builder.set_sort(sort_option)
+            self.filter_nav.add_chip("Sort", sort_option.value)
 
         # Advanced filters
         if value := filters.get("included_genres"):
+            if main_genre:
+                value.append(main_genre)
             builder.set_genres(include=value)
 
         if value := filters.get("excluded_genres"):
@@ -772,14 +794,27 @@ class SearchInterface(QWidget):
             builder.set_duration_range(min_duration, max_duration)
             self.filter_nav.add_chip("Duration Range", f"{min_duration}-{max_duration}", FluentIcon.DATE_TIME)
 
+
+        logger.debug(f"Building query based on filters: {builder.build(self.get_media_field_builder())}")
         return builder
 
     def add_medias(self, data: AnilistSearchResult):
         if not isinstance(data, AnilistSearchResult):
             logger.error(f"add_medias expects AnilistSearchResult but got {type(data)}")
             return
-        is_increment = False if self.page <= 1 else True
+        page = data.pageInfo
+        self.page = page.currentPage
+        if self.page == 1:
+            is_increment = False
+        else:
+            is_increment = True
+
+        self._hasNextPage = page.hasNextPage
+
+        logger.debug(f"Adding medias for page {self.page}, has next page {self._hasNextPage}")
+
         medias = data.medias
+        logger.debug(f"Adding medias for page {self.page}, has {len(medias)}")
         self.view_stack.add_medias(medias, is_increment)
 
     def get_media_field_builder(self)->MediaQueryBuilder:
@@ -791,13 +826,12 @@ class SearchInterface(QWidget):
             await self.image_downloader.close()
 
 
-async def main():
-    def on_search():
-        QTimer.singleShot(2000, lambda: window.add_medias(cards))
-
+def main():
+    # Load your data upfront
     tags_path = r"D:\Program\Zerokku\assets\tags.json"
     with open(r"D:\Program\Zerokku\demo\data.json", "r", encoding="utf-8") as f:
         data = json.load(f)
+
     cards = parse_searched_media(data, MediaType.ANIME, None, None, None)
 
     app = QApplication(sys.argv)
@@ -808,18 +842,30 @@ async def main():
     app_close_event = asyncio.Event()
     app.aboutToQuit.connect(app_close_event.set)
 
-
-    # main = AdvanceFilter()
     window = SearchInterface(tags_path)
-    await window.init_image_downloader()
-    # print(window.get_media_field_builder().build())
-    window.searchSignal.connect(lambda: on_search())
-    window.searchSignal.connect(print)
-    # filter = SearchBar()
-    # filter.show()
     window.show()
+
+    # print(window.builder.build(window.get_media_field_builder()))
+
+    # Start async init task
+    asyncio.ensure_future(window.init_image_downloader())
+
+    # Search signal triggers adding media cards after 2 seconds delay
+    call = 1
+    # def on_search():
+    #     if call < 3:
+    #         QTimer.singleShot(2000, lambda: window.add_medias(cards))
+    #
+    #     call += 1
+
+
+
+    window.searchSignal.connect(lambda: window.add_medias(cards))
+    # window.searchSignal.connect(print)
+
+    # Run the event loop until app closes
     with event_loop:
         event_loop.run_until_complete(app_close_event.wait())
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
