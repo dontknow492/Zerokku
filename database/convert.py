@@ -1,6 +1,7 @@
+import json
 from datetime import datetime
 from enum import EnumType, Enum
-from typing import Union, List
+from typing import Union, List, Dict
 
 from pywin.dialogs import status
 
@@ -11,6 +12,15 @@ from AnillistPython.models import CharacterRole, AnilistStudio
 from AnillistPython.models.media import AnilistMediaTrailer, MediaCoverImage
 from database.models import Anime, Manga, Tag, Studio, Trailer, Character, MediaCharacter, Genre, Format, Status, \
     Season, SourceMaterial, CharacterRole as DbCharacterRole, RelationType as RelationType
+
+tags_data: List[Dict] = []
+
+def read_tag(tag_path: str):
+    global tags_data
+    with open(tag_path, "r", encoding="utf-8") as f:
+        tags_data = json.load(f)
+
+
 
 media_enum_to_index = {
     MediaFormat: {
@@ -119,6 +129,9 @@ def get_enum_index(enum_class: type[Enum], enum_value: Enum) -> int | None:
         raise TypeError(f"enum_value must be an instance of {enum_class}, got {type(enum_value)}")
 
     return media_enum_to_index.get(enum_class, {}).get(enum_value)
+
+
+
 
 def anilist_to_genre(genre: MediaGenre) -> Genre:
     if genre is None:

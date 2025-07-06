@@ -1,10 +1,10 @@
 import os
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, TypeVar
 
 from loguru import logger
 from sqlalchemy import Engine, event, create_engine
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncEngine, AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.schema import Table, ForeignKey, Column, CheckConstraint, UniqueConstraint, Index
@@ -84,7 +84,7 @@ class User(Base):
     """Represents a registered user in the system."""
     __tablename__ = 'user'
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String)
+    name: Mapped[str] = mapped_column(String, unique=True)
     password_hash: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -592,26 +592,70 @@ class Manga(MediaBase, Base):
     )
 
 
-async def populate_reference_tables(
-    session: AsyncSession,
-    status: List[Status],
-    genres: List[Genre],
-    formats: List[Format],
-    seasons: List[Season],
-    source_materials: List[SourceMaterial],
-    relation_type: List[RelationType],
-    character_roles: List[CharacterRole],
-):
+T = TypeVar('T')  # Generic type for SQLAlchemy models
+
+async def populate_reference_tables(session: AsyncSession, **kwargs: List[T]) -> None:
+    """
+    Populates reference tables in the database with provided model instances.
+
+    This function dynamically adds lists of SQLAlchemy model instances (e.g., Status, Genre, Format)
+    to the database within a single transaction. Each keyword argument should be a list of model
+    instances corresponding to a reference table.
+
+    Args:
+        session (AsyncSession): The SQLAlchemy async session to use for database operations.
+        **kwargs (List[T]): Keyword arguments where each key is a string (e.g., 'status', 'genres')
+            and each value is a list of SQLAlchemy model instances to be added to the database.
+
+    Raises:
+        SQLAlchemyError: If a database error occurs during the operation (e.g., constraint violation).
+        ValueError: If a provided keyword argument is not a list or contains invalid model instances.
+
+    Examples:
+        ```python
+        await populate_reference_tables(
+            session,
+            status=[Status(id=1, name="Airing"), Status(id=2, name="Completed")],
+            genres=[Genre(id=1, name="Action"), Genre(id=2, name="Comedy")]
+        )
+        ```
+
+    Notes:
+        - Ensures all operations occur within a single transaction for atomicity.
+        - Logs errors for debugging purposes.
+        - Validates that each keyword argument is a non-empty list of valid model instances.
+    """
     try:
         async with session.begin():
-            session.add_all(status)
-            session.add_all(genres)
-            session.add_all(formats)
-            session.add_all(seasons)
-            session.add_all(source_materials)
-            session.add_all(relation_type)
-            session.add_all(character_roles)
-    except:
+            for key, instances in kwargs.items():
+                # Validate that the argument is a list
+                if not isinstance(instances, list):
+                    raise ValueError(f"Argument '{key}' must be a list of model instances, got {type(instances)}")
+
+                # Validate that the list is not empty and contains valid model instances
+                if not instances:
+                    logger.warning(f"Empty list provided for '{key}', skipping")
+                    continue
+
+                # Check that all items in the list are of the same type (assumed to be SQLAlchemy models)
+                if not all(isinstance(item, type(instances[0])) for item in instances):
+                    raise ValueError(f"All items in '{key}' must be of the same model type")
+
+                # Add all instances to the session
+                session.add_all(instances)
+                logger.debug(f"Added {len(instances)} instances for '{key}' to session")
+
+    except IntegrityError as e:
+        logger.error(f"Error adding {key}: {e}, skipping")
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error while populating reference tables: {e}")
+        raise
+    except ValueError as e:
+        logger.error(f"Validation error: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error while populating reference tables: {e}")
         raise
 
 

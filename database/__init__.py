@@ -3,4 +3,4 @@ from .models import (Anime, Manga, Genre, Tag, Trailer, UserCategory, RelationTy
     Format, SourceMaterial, Season, Status, Studio, Episode, WatchHistory, sync_init_db, init_db,
                     populate_reference_tables)
 
-from .repo import AsyncLibraryRepository, AsyncMediaRepository
+from .repo import AsyncLibraryRepository, AsyncMediaRepository, get_user, update_user, create_user
