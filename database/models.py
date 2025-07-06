@@ -5,7 +5,7 @@ from typing import List, Optional
 from loguru import logger
 from sqlalchemy import Engine, event, create_engine
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncEngine, AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.schema import Table, ForeignKey, Column, CheckConstraint, UniqueConstraint, Index
 from sqlalchemy.types import String, Boolean, Integer, Text, DateTime, Date, JSON
@@ -70,6 +70,13 @@ manga_character_association = Table(
     Base.metadata,
     Column("manga_id", ForeignKey("manga.id"), primary_key=True),
     Column("character_id", ForeignKey("characters.id"), primary_key=True)
+)
+
+library_category = Table(
+    'library_category',
+    Base.metadata,
+    Column('library_id', Integer, ForeignKey('user_libraries.id'), primary_key=True),
+    Column('category_id', Integer, ForeignKey('user_categories.id'), primary_key=True)
 )
 
 
@@ -217,6 +224,13 @@ class RelationType(Base):
     name: Mapped[str] = mapped_column(String, unique=True)
 
 
+class CharacterRole(Base):
+    """Represents a Character Role of anime/manga in the system."""
+    __tablename__ = 'character_roles'
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, unique=True)
+
+
 class Trailer(Base):
     """Represents a Trailer of anime/manga in the system."""
     __tablename__ = 'trailers'
@@ -326,16 +340,23 @@ class UserCategory(Base):
     name: Mapped[str] = mapped_column(String)
     description: Mapped[str] = mapped_column(Text)
     hidden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    password_hash: Mapped[str] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
     user: Mapped["User"] = relationship("User", back_populates="categories")
 
+    # Many-to-many relationship with UserLibrary
+    library_entries: Mapped[list["UserLibrary"]] = relationship(
+        "UserLibrary",
+        secondary=library_category,
+        back_populates="categories"
+    )
+
 
 class UserLibrary(Base):
-    """Represents a Anime/Manga user saved/store."""
+    """Represents an Anime/Manga user saved/stored."""
     __tablename__ = "user_libraries"
+
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False, index=True)
     anime_id: Mapped[int] = mapped_column(ForeignKey("anime.id"), nullable=True, index=True)
@@ -348,6 +369,13 @@ class UserLibrary(Base):
     anime: Mapped["Anime"] = relationship("Anime")
     manga: Mapped["Manga"] = relationship("Manga")
     status: Mapped["Status"] = relationship("Status")
+
+    # Many-to-many relationship with UserCategory
+    categories: Mapped[list["UserCategory"]] = relationship(
+        "UserCategory",
+        secondary=library_category,
+        back_populates="library_entries"
+    )
 
     __table_args__ = (
         CheckConstraint('anime_id IS NOT NULL OR manga_id IS NOT NULL', name='check_media_id'),
@@ -562,6 +590,29 @@ class Manga(MediaBase, Base):
         Index("ix_manga_popularity", "popularity"),
         Index("ix_manga_average_score", "average_score"),
     )
+
+
+async def populate_reference_tables(
+    session: AsyncSession,
+    status: List[Status],
+    genres: List[Genre],
+    formats: List[Format],
+    seasons: List[Season],
+    source_materials: List[SourceMaterial],
+    relation_type: List[RelationType],
+    character_roles: List[CharacterRole],
+):
+    try:
+        async with session.begin():
+            session.add_all(status)
+            session.add_all(genres)
+            session.add_all(formats)
+            session.add_all(seasons)
+            session.add_all(source_materials)
+            session.add_all(relation_type)
+            session.add_all(character_roles)
+    except:
+        raise
 
 
 async def init_db(engine: AsyncEngine) -> None:

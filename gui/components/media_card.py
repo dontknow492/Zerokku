@@ -18,7 +18,7 @@ from gui.common import (WaitingLabel, OutlinedChip, MyLabel, SkimmerWidget, Skel
 from utils import FontAwesomeRegularIcon, get_scale_factor
 
 from AnillistPython import AnilistMedia, AnilistScore, AnilistMediaInfo, MediaType, MediaStatus, AnilistTitle, \
-    MediaCoverImage
+    MediaCoverImage, MediaGenre
 
 
 class MediaVariants(Enum):
@@ -110,6 +110,8 @@ class MediaCard(CardWidget):
     def _create_genre(self, color: QColor):
         self.genre_layout.takeAllWidgets()
         for genre in self.genres:
+            if isinstance(genre, MediaGenre):
+                genre = genre.value
             button = OutlinedChip(genre[:15], primary_color=color, border_radius=14)
             button.setMaximumHeight(28)
             self.genre_layout.addWidget(button)
@@ -444,7 +446,7 @@ class MediaCard(CardWidget):
         else:
             self.cover_label.setScaledSize(self.COVER_SIZE)
 
-    def setGenre(self, genres: List[str], color: QColor = ThemeColor.PRIMARY.color()):
+    def setGenre(self, genres: List[Union[str, MediaGenre]], color: QColor = ThemeColor.PRIMARY.color()):
         if genres is None or len(genres) == 0:
             return
         self.genres = genres
@@ -538,7 +540,7 @@ class MediaRelationCard(CardWidget):
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     ex = MediaCard(MediaVariants.LANDSCAPE)
-    genres = ["Action", "Aventure", "fantasy"]
+    genres = [MediaGenre.ACTION, MediaGenre.ROMANCE, MediaGenre.ADVENTURE]
     color = QColor.fromRgbF(0.839216, 0.262745, 0.101961, 1.000000)
 
     data = AnilistMedia(
