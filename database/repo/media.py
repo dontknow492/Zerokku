@@ -6,15 +6,17 @@ from functools import lru_cache
 
 from cachetools import LFUCache
 from loguru import logger
-from sqlalchemy import select, and_, or_, func, between, not_
+from sqlalchemy import select, and_, or_, func, between, not_, asc, desc
 from sqlalchemy.sql import func
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, DatabaseError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import sessionmaker
 
+from database import get_enum_index
 from database.models import Anime, Manga, Genre, Tag, Studio
 
-from AnillistPython import MediaType
+from AnillistPython import MediaType, MediaStatus, MediaFormat, MediaSource, MediaSeason
+
 
 class SortBy(str, Enum):
     ID = "id"
@@ -237,202 +239,6 @@ class AsyncMediaRepository:
                              exc_info=True)
                 raise  # Re-raise the exception after logging
 
-    async def get_by_title(self, title: str, media_type: MediaType) -> Sequence[Union[Anime, Manga]]:
-        """
-        Get media by title and type with logging.
-
-        Args:
-            self: The instance of the class containing the session_maker.
-            title: The title (or part of the title) to search for.
-            media_type: The type of media (Anime or Manga).
-
-        Returns:
-            A list of Anime or Manga objects matching the title, or an empty list.
-        """
-        logger.info(f"Attempting to retrieve {media_type.value} by title: '{title}'")
-
-        # Determine the model based on media_type
-        model = Anime if media_type == MediaType.ANIME else Manga
-        logger.debug(f"Using model: {model.__name__} for media type: {media_type.value}")
-
-        # This 'self.session_maker()' would typically be an async_sessionmaker instance
-        # from SQLAlchemy, which creates an AsyncSession.
-        # For this function to run, 'self' must have a 'session_maker' attribute
-        # that returns an AsyncSession context manager.
-        async with self.session_maker() as session:
-            try:
-                # Build the query to search across multiple title fields using case-insensitive LIKE
-                query = select(model).filter(
-                    or_(
-                        model.title_english.ilike(f"%{title}%"),
-                        model.title_native.ilike(f"%{title}%"),
-                        model.title_romaji.ilike(f"%{title}%"),
-                        # func.json_each(model.synonyms).ilike(f"%{title}%"), # This line is commented out in original
-                    )
-                )
-                logger.debug(f"Executing query for {media_type.value} with title '{title}'")
-                result = await session.execute(query)
-                media_items = result.scalars().all()
-
-                if media_items:
-                    logger.success(f"Found {len(media_items)} {media_type.value}(s) matching title '{title}'.")
-                    for item in media_items:
-                        logger.debug(f"  - Found: {item}")
-                else:
-                    logger.warning(f"No {media_type.value}(s) found matching title '{title}'.")
-                return media_items
-            except SQLAlchemyError as e:
-                logger.error(f"SQLAlchemy Error while retrieving {media_type.value} by title '{title}': {e}",
-                             exc_info=True)
-                raise  # Re-raise the exception after logging
-
-    async def get_by_multiple_titles(
-            self,
-            titles: Sequence[str],
-            media_type: MediaType,
-            limit: int = 10,
-            media_ids: Optional[List[int]] = None
-    ) -> Sequence[Union[Anime, Manga]]:
-        """
-        Get media by multiple titles and type with logging.
-
-        Args:
-            self: The instance of the class containing the session_maker.
-            titles: A sequence of titles (or parts of titles) to search for.
-            media_type: The type of media (Anime or Manga).
-            limit: The maximum number of results to return. Defaults to 10.
-                   If 0 or less, no limit is applied.
-            media_ids: An optional list of media IDs to filter the results by.
-
-        Returns:
-            A list of Anime or Manga objects matching any of the titles,
-            optionally filtered by IDs and limited, or an empty list.
-        """
-        logger.info(f"Attempting to retrieve {media_type.value} by multiple titles: {titles}")
-        logger.debug(f"Search parameters: limit={limit}, media_ids={media_ids}")
-
-        # Determine the model based on media_type
-        model = Anime if media_type == MediaType.ANIME else Manga
-        logger.debug(f"Using model: {model.__name__} for media type: {media_type.value}")
-
-        async with self.session_maker() as session:
-            try:
-                # Build the OR clause for multiple title searches
-                title_filters = [model.title_english.ilike(f"%{title}%") for title in titles]
-                query = select(model).filter(or_(*title_filters))
-                logger.debug(f"Initial query built with {len(title_filters)} title filters.")
-
-                # Apply media_ids filter if provided
-                if media_ids:
-                    query = query.filter(model.id.in_(media_ids))
-                    logger.debug(f"Applied media_ids filter: {media_ids}")
-
-                # Apply limit
-                if limit > 0:
-                    query = query.limit(limit)
-                    logger.debug(f"Applied limit: {limit}")
-                else:
-                    logger.debug("No limit applied (limit <= 0).")
-
-                logger.debug(f"Executing final query for {media_type.value}.")
-                result = await session.execute(query)
-                media_items = result.scalars().all()
-
-                if media_items:
-                    logger.success(f"Found {len(media_items)} {media_type.value}(s) matching titles.")
-                    for item in media_items:
-                        logger.debug(f"  - Found: {item}")
-                else:
-                    logger.warning(f"No {media_type.value}(s) found matching the provided titles and filters.")
-                return media_items
-            except SQLAlchemyError as e:
-                logger.error(f"SQLAlchemy Error while retrieving {media_type.value} by multiple titles '{titles}': {e}",
-                             exc_info=True)
-                raise  # Re-raise the exception after logging
-
-    async def search(
-            self,
-            query: str,
-            media_type: MediaType,
-            limit: int = 10,
-            media_ids: Optional[List[int]] = None
-    ) -> Sequence[Union[Anime, Manga]]:
-        """
-        Search media by query and type, including synonyms in the search, with logging.
-
-        Args:
-            self: The instance of the class containing the session_maker.
-            query: The search string.
-            media_type: The type of media (Anime or Manga).
-            limit: The maximum number of results to return. Defaults to 10.
-            media_ids: An optional list of media IDs to filter the results by.
-
-        Returns:
-            A list of Anime or Manga objects matching the query,
-            optionally filtered by IDs and limited, or an empty list.
-        """
-        logger.info(f"Initiating search for {media_type.name} with query: '{query}'")
-        logger.debug(f"Search parameters: limit={limit}, media_ids={media_ids}")
-
-        model = Anime if media_type == MediaType.ANIME else Manga
-        logger.debug(f"Using model: {model.__name__} for media type: {media_type.value}")
-
-        async with self.session_maker() as session:
-            try:
-                # Build the base query with OR conditions for various title fields and description
-                # For synonyms, assuming it's a string field that can be searched with LIKE.
-                # If synonyms is a JSON array in your DB, you'd need `func.json_each` or similar
-                # as commented out in your original code, which is database-specific.
-                base_query = select(model).filter(
-                    or_(
-                        model.title_english.ilike(f"%{query}%"),
-                        model.title_native.ilike(f"%{query}%"),
-                        model.title_romaji.ilike(f"%{query}%"),
-                        model.description.ilike(f"%{query}%"),
-                        model.synonyms.ilike(f"%{query}%")  # Assuming synonyms is a searchable string field
-                    )
-                )
-                logger.debug("Base query constructed with title, description, and synonyms filters.")
-
-                # Apply the limit to the query
-                if limit > 0:
-                    base_query = base_query.limit(limit)
-                    logger.debug(f"Applied limit: {limit}")
-                else:
-                    logger.debug("No limit applied (limit <= 0).")
-
-                # Apply media_ids filter if provided
-                if media_ids:
-                    base_query = base_query.filter(model.id.in_(media_ids))
-                    logger.debug(f"Applied media_ids filter: {media_ids}")
-
-                logger.debug(f"Executing final search query for {media_type.value}.")
-                result = await session.execute(base_query)
-                media_items = result.scalars().all()
-
-                if media_items:
-                    logger.success(f"Found {len(media_items)} {media_type.value}(s) matching query '{query}'.")
-                    for item in media_items:
-                        logger.debug(f"  - Found: {item}")
-                else:
-                    logger.warning(f"No {media_type.value}(s) found matching query '{query}'.")
-                return media_items
-
-            except SQLAlchemyError as e:
-                logger.error(f"SQLAlchemy Error during search for {media_type.value} with query '{query}': {e}",
-                             exc_info=True)
-                # Re-raise the exception if you want calling code to handle it,
-                # or return an empty list as per original code's error handling.
-                # Returning empty list as per original function's error handling.
-                return []
-
-            except Exception as e:
-                logger.error(
-                    f"An unexpected error occurred during search for {media_type.value} with query '{query}': {e}",
-                    exc_info=True)
-                # Returning empty list as per original function's error handling.
-                return []
-
     ### Update
     async def update(
             self,
@@ -614,374 +420,153 @@ class AsyncMediaRepository:
                 logger.error(f"An unexpected error occurred during count for {media_type.value}: {e}", exc_info=True)
                 return 0
 
-    async def get_by_genres(
-            self,
-            genres: List[str],
-            media_type: MediaType,
-            limit: int = 10,
-            media_ids: Optional[List[int]] = None
-    ) -> Sequence[Union[Anime, Manga]]:
-        """
-        Get media by genres and type with logging.
-
-        Args:
-            self: The instance of the class containing the session_maker.
-            genres: A list of genre names to filter by.
-            media_type: The type of media (Anime or Manga).
-            limit: The maximum number of results to return. Defaults to 10.
-                   If 0 or less, no limit is applied.
-            media_ids: An optional list of media IDs to filter the results by.
-
-        Returns:
-            A list of Anime or Manga objects matching the genres,
-            optionally filtered by IDs and limited, or an empty list.
-        """
-        logger.info(f"Attempting to retrieve {media_type.value} by genres: {genres}")
-        logger.debug(f"Search parameters: limit={limit}, media_ids={media_ids}")
-
-        model = Anime if media_type == MediaType.ANIME else Manga
-        logger.debug(f"Using model: {model.__name__} for media type: {media_type.value}")
-
-        async with self.session_maker() as session:
-            try:
-                # Join with the genres relationship and filter by genre names
-                query = select(model).join(model.genres).filter(Genre.name.in_(genres))
-                logger.debug(f"Initial query built with genre filter: {genres}")
-
-                # Apply media_ids filter if provided
-                if media_ids:
-                    query = query.filter(model.id.in_(media_ids))
-                    logger.debug(f"Applied media_ids filter: {media_ids}")
-
-                # Apply limit
-                if limit > 0:
-                    query = query.limit(limit)
-                    logger.debug(f"Applied limit: {limit}")
-                else:
-                    logger.debug("No limit applied (limit <= 0).")
-
-                logger.debug(f"Executing final query for {media_type.value}.")
-                result = await session.execute(query)
-                media_items = result.scalars().unique().all()  # Use unique() to avoid duplicates from joins
-
-                if media_items:
-                    logger.success(f"Found {len(media_items)} {media_type.value}(s) matching genres.")
-                    for item in media_items:
-                        logger.debug(f"  - Found: {item}")
-                else:
-                    logger.warning(f"No {media_type.value}(s) found matching genres '{genres}'.")
-                return media_items
-            except SQLAlchemyError as e:
-                logger.error(
-                    f"SQLAlchemy Error during get_by_genres for {media_type.value} with genres '{genres}': {e}",
-                    exc_info=True)
-                return []
-            except Exception as e:
-                logger.error(
-                    f"An unexpected error occurred during get_by_genres for {media_type.value} with genres '{genres}': {e}",
-                    exc_info=True)
-                return []
-
-    async def get_by_status(
-            self,
-            status_id: int,
-            media_type: MediaType,
-            limit: int = 10,
-            media_ids: Optional[List[int]] = None
-    ) -> Sequence[Union[Anime, Manga]]:
-        """
-        Get media by status and type with logging.
-
-        Args:
-            self: The instance of the class containing the session_maker.
-            status_id: The ID of the status to filter by.
-            media_type: The type of media (Anime or Manga).
-            limit: The maximum number of results to return. Defaults to 10.
-                   If 0 or less, no limit is applied.
-            media_ids: An optional list of media IDs to filter the results by.
-
-        Returns:
-            A list of Anime or Manga objects matching the status,
-            optionally filtered by IDs and limited, or an empty list.
-        """
-        logger.info(f"Attempting to retrieve {media_type.value} by status ID: {status_id}")
-        logger.debug(f"Search parameters: limit={limit}, media_ids={media_ids}")
-
-        model = Anime if media_type == MediaType.ANIME else Manga
-        logger.debug(f"Using model: {model.__name__} for media type: {media_type.value}")
-
-        async with self.session_maker() as session:
-            try:
-                query = select(model).filter(model.status_id == status_id)
-                logger.debug(f"Initial query built with status_id: {status_id}")
-
-                if media_ids:
-                    query = query.filter(model.id.in_(media_ids))
-                    logger.debug(f"Applied media_ids filter: {media_ids}")
-
-                if limit > 0:
-                    query = query.limit(limit)
-                    logger.debug(f"Applied limit: {limit}")
-                else:
-                    logger.debug("No limit applied (limit <= 0).")
-
-                logger.debug(f"Executing final query for {media_type.value}.")
-                result = await session.execute(query)
-                media_items = result.scalars().all()
-
-                if media_items:
-                    logger.success(f"Found {len(media_items)} {media_type.value}(s) with status ID {status_id}.")
-                    for item in media_items:
-                        logger.debug(f"  - Found: {item}")
-                else:
-                    logger.warning(f"No {media_type.value}(s) found with status ID {status_id}.")
-                return media_items
-            except SQLAlchemyError as e:
-                logger.error(
-                    f"SQLAlchemy Error during get_by_status for {media_type.value} with status ID {status_id}: {e}",
-                    exc_info=True)
-                return []
-            except Exception as e:
-                logger.error(
-                    f"An unexpected error occurred during get_by_status for {media_type.value} with status ID {status_id}: {e}",
-                    exc_info=True)
-                return []
-
-    async def get_by_format(
-            self,
-            format_id: int,
-            media_type: MediaType,
-            limit: int = 10,
-            media_ids: Optional[List[int]] = None
-    ) -> Sequence[Union[Anime, Manga]]:
-        """
-        Get media by format and type with logging.
-
-        Args:
-            self: The instance of the class containing the session_maker.
-            format_id: The ID of the format to filter by.
-            media_type: The type of media (Anime or Manga).
-            limit: The maximum number of results to return. Defaults to 10.
-                   If 0 or less, no limit is applied.
-            media_ids: An optional list of media IDs to filter the results by.
-
-        Returns:
-            A list of Anime or Manga objects matching the format,
-            optionally filtered by IDs and limited, or an empty list.
-        """
-        logger.info(f"Attempting to retrieve {media_type.value} by format ID: {format_id}")
-        logger.debug(f"Search parameters: limit={limit}, media_ids={media_ids}")
-
-        model = Anime if media_type == MediaType.ANIME else Manga
-        logger.debug(f"Using model: {model.__name__} for media type: {media_type.value}")
-
-        async with self.session_maker() as session:
-            try:
-                query = select(model).filter(model.format_id == format_id)
-                logger.debug(f"Initial query built with format_id: {format_id}")
-
-                if media_ids:
-                    query = query.filter(model.id.in_(media_ids))
-                    logger.debug(f"Applied media_ids filter: {media_ids}")
-
-                if limit > 0:
-                    query = query.limit(limit)
-                    logger.debug(f"Applied limit: {limit}")
-                else:
-                    logger.debug("No limit applied (limit <= 0).")
-
-                logger.debug(f"Executing final query for {media_type.value}.")
-                result = await session.execute(query)
-                media_items = result.scalars().all()
-
-                if media_items:
-                    logger.success(f"Found {len(media_items)} {media_type.value}(s) with format ID {format_id}.")
-                    for item in media_items:
-                        logger.debug(f"  - Found: {item}")
-                else:
-                    logger.warning(f"No {media_type.value}(s) found with format ID {format_id}.")
-                return media_items
-            except SQLAlchemyError as e:
-                logger.error(
-                    f"SQLAlchemy Error during get_by_format for {media_type.value} with format ID {format_id}: {e}",
-                    exc_info=True)
-                return []
-            except Exception as e:
-                logger.error(
-                    f"An unexpected error occurred during get_by_format for {media_type.value} with format ID {format_id}: {e}",
-                    exc_info=True)
-                return []
-
-    async def get_by_season(
-            self,
-            season_id: int,
-            media_type: MediaType,
-            limit: int = 10,
-            media_ids: Optional[List[int]] = None
-    ) -> Sequence[Union[Anime, Manga]]:
-        """
-        Get media by season and type with logging.
-
-        Args:
-            self: The instance of the class containing the session_maker.
-            season_id: The ID of the season to filter by.
-            media_type: The type of media (Anime or Manga).
-            limit: The maximum number of results to return. Defaults to 10.
-                   If 0 or less, no limit is applied.
-            media_ids: An optional list of media IDs to filter the results by.
-
-        Returns:
-            A list of Anime or Manga objects matching the season,
-            optionally filtered by IDs and limited, or an empty list.
-        """
-        logger.info(f"Attempting to retrieve {media_type.value} by season ID: {season_id}")
-        logger.debug(f"Search parameters: limit={limit}, media_ids={media_ids}")
-
-        model = Anime if media_type == MediaType.ANIME else Manga
-        logger.debug(f"Using model: {model.__name__} for media type: {media_type.value}")
-
-        async with self.session_maker() as session:
-            try:
-                query = select(model).filter(model.season_id == season_id)
-                logger.debug(f"Initial query built with season_id: {season_id}")
-
-                if media_ids:
-                    query = query.filter(model.id.in_(media_ids))
-                    logger.debug(f"Applied media_ids filter: {media_ids}")
-
-                if limit > 0:
-                    query = query.limit(limit)
-                    logger.debug(f"Applied limit: {limit}")
-                else:
-                    logger.debug("No limit applied (limit <= 0).")
-
-                logger.debug(f"Executing final query for {media_type.value}.")
-                result = await session.execute(query)
-                media_items = result.scalars().all()
-
-                if media_items:
-                    logger.success(f"Found {len(media_items)} {media_type.value}(s) with season ID {season_id}.")
-                    for item in media_items:
-                        logger.debug(f"  - Found: {item}")
-                else:
-                    logger.warning(f"No {media_type.value}(s) found with season ID {season_id}.")
-                return media_items
-            except SQLAlchemyError as e:
-                logger.error(
-                    f"SQLAlchemy Error during get_by_season for {media_type.value} with season ID {season_id}: {e}",
-                    exc_info=True)
-                return []
-            except Exception as e:
-                logger.error(
-                    f"An unexpected error occurred during get_by_season for {media_type.value} with season ID {season_id}: {e}",
-                    exc_info=True)
-                return []
-
-    async def get_by_source_material(
-            self,
-            source_material_id: int,
-            media_type: MediaType,
-            limit: int = 10,
-            media_ids: Optional[List[int]] = None
-    ) -> Sequence[Union[Anime, Manga]]:
-        """
-        Get media by source material and type with logging.
-
-        Args:
-            self: The instance of the class containing the session_maker.
-            source_material_id: The ID of the source material to filter by.
-            media_type: The type of media (Anime or Manga).
-            limit: The maximum number of results to return. Defaults to 10.
-                   If 0 or less, no limit is applied.
-            media_ids: An optional list of media IDs to filter the results by.
-
-        Returns:
-            A list of Anime or Manga objects matching the source material,
-            optionally filtered by IDs and limited, or an empty list.
-        """
-        logger.info(f"Attempting to retrieve {media_type.value} by source material ID: {source_material_id}")
-        logger.debug(f"Search parameters: limit={limit}, media_ids={media_ids}")
-
-        model = Anime if media_type == MediaType.ANIME else Manga
-        logger.debug(f"Using model: {model.__name__} for media type: {media_type.value}")
-
-        async with self.session_maker() as session:
-            try:
-                query = select(model).filter(model.source_material_id == source_material_id)
-                logger.debug(f"Initial query built with source_material_id: {source_material_id}")
-
-                if media_ids:
-                    query = query.filter(model.id.in_(media_ids))
-                    logger.debug(f"Applied media_ids filter: {media_ids}")
-
-                if limit > 0:
-                    query = query.limit(limit)
-                    logger.debug(f"Applied limit: {limit}")
-                else:
-                    logger.debug("No limit applied (limit <= 0).")
-
-                logger.debug(f"Executing final query for {media_type.value}.")
-                result = await session.execute(query)
-                media_items = result.scalars().all()
-
-                if media_items:
-                    logger.info(
-                        f"Found {len(media_items)} {media_type.value}(s) with source material ID {source_material_id}.")
-                    for item in media_items:
-                        logger.debug(f"  - Found: {item}")
-                else:
-                    logger.warning(f"No {media_type.value}(s) found with source material ID {source_material_id}.")
-                return media_items
-            except SQLAlchemyError as e:
-                logger.error(
-                    f"SQLAlchemy Error during get_by_source_material for {media_type.value} with source material ID {source_material_id}: {e}",
-                    exc_info=True)
-                return []
-            except Exception as e:
-                logger.error(
-                    f"An unexpected error occurred during get_by_source_material for {media_type.value} with source material ID {source_material_id}: {e}",
-                    exc_info=True)
-                return []
-
-    async def get_sorted(
+    async def get_by_advanced_filters(
             self,
             media_type: MediaType,
-            sort_by: SortBy = SortBy.POPULARITY,
+            query: Optional[str] = None,
+            min_score: Optional[int] = None,
+            max_score: Optional[int] = None,
+            min_count: Optional[int] = None,
+            max_count: Optional[int] = None,
+            min_duration: Optional[int] = None,
+            max_duration: Optional[int] = None,
+            start_year: Optional[int] = None,
+            end_year: Optional[int] = None,
+            genres: Optional[List[str]] = None,
+            status: Optional[MediaStatus] = None,
+            format: Optional[MediaFormat] = None,
+            source_material: Optional[MediaSource] = None,
+            season: Optional[MediaSeason] = None,
+            media_ids: Optional[List[int]] = None,
+            sort_by: Optional[SortBy] = SortBy.POPULARITY,
             order: SortOrder = SortOrder.DESC,
             limit: int = 10,
-            media_ids: Optional[List[int]] = None
-    ) -> Sequence[Union[Anime, Manga]]:
-        """
-        Get media sorted by specified criterion and order with logging.
-
-        Args:
-            self: The instance of the class containing the session_maker.
-            media_type: The type of media (Anime or Manga).
-            sort_by: The criterion to sort by (e.g., POPULARITY, START_DATE).
-            order: The sort order (ASC or DESC).
-            limit: The maximum number of results to return. Defaults to 10.
-                   If 0 or less, no limit is applied.
-            media_ids: An optional list of media IDs to filter the results by.
-
-        Returns:
-            A list of Anime or Manga objects sorted as specified,
-            optionally filtered by IDs and limited, or an empty list.
-        """
-        logger.info(f"Attempting to retrieve sorted {media_type.value} entries.")
-        logger.debug(
-            f"Sort parameters: sort_by={sort_by.name}, order={order.name}, limit={limit}, media_ids={media_ids}")
-
+            offset: int = 0
+    ) -> Union[List[Anime], List[Manga]]:
+        logger.info(f"Applying advanced filters for {media_type.value}")
+        logger.debug(f"Active filters: query={query}, score={min_score}-{max_score}, count={min_count}-{max_count}, "
+                     f"duration={min_duration}-{max_duration}, year={start_year}-{end_year}, genres={genres}, "
+                     f"status={status}, format={format}, season={season}, source={source_material}, "
+                     f"sort_by={sort_by}, order={order}, limit={limit}, offset={offset}")
         model = Anime if media_type == MediaType.ANIME else Manga
-        logger.debug(f"Using model: {model.__name__} for media type: {media_type.value}")
+        filters = []
 
-        # Validate sort_by for media type
-        if media_type == MediaType.ANIME and sort_by in [SortBy.CHAPTERS, SortBy.VOLUMES]:
-            logger.warning(f"Invalid sort_by '{sort_by.name}' for Anime. Returning empty list.")
-            return []
-        if media_type == MediaType.MANGA and sort_by in [SortBy.EPISODES, SortBy.DURATION]:
-            logger.warning(f"Invalid sort_by '{sort_by.name}' for Manga. Returning empty list.")
-            return []
+        # Input validation
+        if limit <= 0:
+            logger.warning("Invalid limit value, defaulting to None")
+            limit = None
+        if offset <= 0:
+            logger.warning("Invalid offset value, defaulting to 0")
+            offset = 0
+        if min_score is not None and max_score is not None and min_score > max_score:
+            logger.warning("min_score cannot be greater than max_score, swapping values")
+            min_score, max_score = max_score, min_score
 
+        # Query filter
+        if query:
+            filters.append(
+                or_(
+                    model.title_english.ilike(f"%{query}%"),
+                    model.title_romaji.ilike(f"%{query}%"),
+                    model.title_native.ilike(f"%{query}%"),
+                    model.description.ilike(f"%{query}%"),
+                    model.synonyms.ilike(f"%{query}%")  # if synonyms is a searchable text field
+                )
+            )
+
+        # Score filter
+        if min_score is not None or max_score is not None:
+            score_conditions = []
+            if min_score is not None:
+                score_conditions.append(or_(
+                    model.average_score >= min_score,
+                    model.mean_score >= min_score,
+                    model.average_score.is_(None)
+                ))
+            if max_score is not None:
+                score_conditions.append(or_(
+                    model.average_score <= max_score,
+                    model.mean_score <= max_score,
+                    model.average_score.is_(None)
+                ))
+            filters.append(and_(*score_conditions))
+
+        # Episode or chapter count
+        # count_column_map = {MediaType.ANIME: , MediaType.MANGA: model.chapters}
+        count_column = model.episodes if media_type == MediaType.ANIME else model.chapters
+        if min_count is not None or max_count is not None:
+            if min_count is not None and max_count is not None:
+                filters.append(count_column.between(min_count, max_count))
+            elif min_count is not None:
+                filters.append(count_column >= min_count)
+            elif max_count is not None:
+                filters.append(count_column <= max_count)
+
+        # Duration (Anime only)
+        if media_type == MediaType.ANIME and (min_duration is not None or max_duration is not None):
+            if min_duration is not None and max_duration is not None:
+                filters.append(Anime.duration.between(min_duration, max_duration))
+            elif min_duration is not None:
+                filters.append(Anime.duration >= min_duration)
+            elif max_duration is not None:
+                filters.append(Anime.duration <= max_duration)
+
+        # Start year
+        if start_year is not None or end_year is not None:
+            if start_year is not None and end_year is not None:
+                filters.append(
+                    and_(
+                        model.start_date.isnot(None),
+                        func.extract('year', model.start_date).between(start_year, end_year)
+                    )
+                )
+            elif start_year is not None:
+                filters.append(
+                    and_(
+                        model.start_date.isnot(None),
+                        func.extract('year', model.start_date) >= start_year
+                    )
+                )
+            elif end_year is not None:
+                filters.append(
+                    and_(
+                        model.start_date.isnot(None),
+                        func.extract('year', model.start_date) <= end_year
+                    )
+                )
+
+        # Genre filter
+        query = select(model)
+        if genres:
+            genre_conditions = [Genre.name.ilike(f"%{genre}%") for genre in genres]
+            filters.append(or_(*genre_conditions))
+            query = query.join(model.genres)
+
+        # Media ID filter
+        if media_ids:
+            filters.append(model.id.in_(media_ids))
+
+        # Enum-based filters
+        def apply_enum_filter(enum_class, enum_value, column):
+            enum_id = get_enum_index(enum_class, enum_value)
+            if enum_id is not None:
+                filters.append(column.in_([enum_id, None]))
+            else:
+                logger.warning(f"Skipping {enum_class.__name__} filter due to invalid value")
+
+        if status:
+            apply_enum_filter(MediaStatus, status, model.status_id)
+        if format:
+            apply_enum_filter(MediaFormat, format, model.format_id)
+        if source_material:
+            apply_enum_filter(MediaSource, source_material, model.source_material_id)
+        if season:
+            apply_enum_filter(MediaSeason, season, model.season_id)
+
+        if filters:
+            query = query.filter(and_(*filters))
+
+        # Sorting
         sort_column_map = {
             SortBy.ID: model.id,
             SortBy.ID_MAL: model.idMal,
@@ -995,359 +580,40 @@ class AsyncMediaRepository:
             SortBy.POPULARITY: model.popularity,
             SortBy.FAVOURITES: model.favourites,
             SortBy.IS_ADULT: model.isAdult,
-            SortBy.EPISODES: getattr(model, 'episodes', None),
-            SortBy.DURATION: getattr(model, 'duration', None),
-            SortBy.CHAPTERS: getattr(model, 'chapters', None),
-            SortBy.VOLUMES: getattr(model, 'volumes', None)
+            SortBy.EPISODES: model.episodes if media_type == MediaType.ANIME else None,
+            SortBy.DURATION: model.duration if media_type == MediaType.ANIME else None,
+            SortBy.CHAPTERS: model.chapters if media_type == MediaType.MANGA else None,
+            SortBy.VOLUMES: model.volumes if media_type == MediaType.MANGA else None,
         }
-
         sort_column = sort_column_map.get(sort_by)
-
         if sort_column is None:
-            logger.error(
-                f"Sort column for '{sort_by.name}' not found or not applicable to model {model.__name__}. Returning empty list.")
-            return []
+            logger.warning(f"Invalid sort column {sort_by} for {media_type.value}, defaulting to popularity")
+            sort_column = model.popularity
+        query = query.order_by(asc(sort_column) if order == SortOrder.ASC else desc(sort_column))
 
-        order_expr = sort_column.asc() if order == SortOrder.ASC else sort_column.desc()
-        logger.debug(f"Sorting by column '{sort_by.name}' in {order.name} order.")
-
-        async with self.session_maker() as session:
-            try:
-                query = select(model).order_by(order_expr)
-                logger.debug("Initial query built with order_by clause.")
-
-                if media_ids:
-                    query = query.filter(model.id.in_(media_ids))
-                    logger.debug(f"Applied media_ids filter: {media_ids}")
-
-                if limit > 0:
-                    query = query.limit(limit)
-                    logger.debug(f"Applied limit: {limit}")
-                else:
-                    logger.debug("No limit applied (limit <= 0).")
-
-                logger.debug(f"Executing final query for sorted {media_type.value}.")
-                result = await session.execute(query)
-                media_items = result.scalars().all()
-
-                if media_items:
-                    logger.info(f"Retrieved {len(media_items)} sorted {media_type.value}(s).")
-                    for item in media_items:
-                        logger.debug(f"  - Found: {item}")
-                else:
-                    logger.warning(f"No {media_type.value}(s) found for the given criteria.")
-                return media_items
-            except SQLAlchemyError as e:
-                logger.error(f"SQLAlchemy Error during get_sorted for {media_type.value} (sort_by={sort_by.name}): {e}",
-                             exc_info=True)
-                return []
-            except Exception as e:
-                logger.error(
-                    f"An unexpected error occurred during get_sorted for {media_type.value} (sort_by={sort_by.name}): {e}",
-                    exc_info=True)
-                return []
-
-
-    async def get_paginated(self, media_type: MediaType, page: int = 1, per_page: int = 10) -> Sequence[
-        Union[Anime, Manga]]:
-        """Get paginated media results"""
-        model = Anime if media_type == MediaType.ANIME else Manga
-        offset = (page - 1) * per_page
-        async with self.session_maker() as session:
-            result = await session.execute(
-                select(model)
-                .offset(offset)
-                .limit(per_page)
-            )
-            return result.scalars().all()
-
-    async def get_by_duration_range(
-            self,
-            media_type: MediaType,
-            min_duration: int,
-            max_duration: int,
-            limit: int = 10,
-            media_ids: Optional[List[int]] = None
-    ) -> Sequence[Anime]:
-        """
-        Get anime by duration range (minutes) with logging.
-
-        Args:
-            self: The instance of the class containing the session_maker.
-            media_type: The type of media (must be MediaType.ANIME).
-            min_duration: The minimum duration in minutes.
-            max_duration: The maximum duration in minutes.
-            limit: The maximum number of results to return. Defaults to 10.
-                   If 0 or less, no limit is applied.
-            media_ids: An optional list of media IDs to filter the results by.
-
-        Returns:
-            A list of Anime objects matching the duration range,
-            optionally filtered by IDs and limited, or an empty list.
-        """
-        logger.info(
-            f"Attempting to retrieve {media_type.value} by duration range: {min_duration}-{max_duration} minutes.")
-        logger.debug(f"Search parameters: limit={limit}, media_ids={media_ids}")
-
-        if media_type != MediaType.ANIME:
-            logger.warning(
-                f"Invalid media_type '{media_type.name}' for duration range search. Only Anime is supported. Returning empty list.")
-            return []
+        # Limit and offset
+        query = query.limit(limit).offset(offset)
 
         async with self.session_maker() as session:
             try:
-                query = select(Anime).filter(between(Anime.duration, min_duration, max_duration))
-                logger.debug(f"Initial query built for Anime duration between {min_duration} and {max_duration}.")
+                count_query = select(func.count()).select_from(query.subquery())
+                count_result = await session.execute(count_query)
+                total_count = count_result.scalar()
 
-                if media_ids:
-                    query = query.filter(Anime.id.in_(media_ids))
-                    logger.debug(f"Applied media_ids filter: {media_ids}")
-
-                # Corrected limit application: limit if limit > 0 else None
-                if limit > 0:
-                    query = query.limit(limit)
-                    logger.debug(f"Applied limit: {limit}")
-                else:
-                    logger.debug("No limit applied (limit <= 0).")
-
-                logger.debug("Executing final query for duration range.")
                 result = await session.execute(query)
-                media_items = result.scalars().all()
-
-                if media_items:
-                    logger.success(f"Found {len(media_items)} Anime(s) within duration range.")
-                    for item in media_items:
-                        logger.debug(f"  - Found: {item}")
-                else:
-                    logger.info("No Anime found within the specified duration range.")
+                media_items = result.scalars().unique().all()
+                logger.success(
+                    f"Retrieved {len(media_items)} of {total_count} {media_type.value}(s) with advanced filters.")
                 return media_items
-            except SQLAlchemyError as e:
-                logger.error(f"SQLAlchemy Error during get_by_duration_range: {e}", exc_info=True)
+            except ProgrammingError as e:
+                logger.error(f"Invalid query error: {e}", exc_info=True)
                 return []
+
+            except DatabaseError as e:
+                logger.error(f"Database connection error: {e}", exc_info=True)
+                raise
+
             except Exception as e:
-                logger.error(f"An unexpected error occurred during get_by_duration_range: {e}", exc_info=True)
+                logger.error(f"Unexpected error: {e}", exc_info=True)
                 return []
 
-    async def get_by_year_range(
-            self,
-            media_type: MediaType,
-            start_year: int,
-            end_year: int,
-            limit: int = 10,
-            media_ids: Optional[List[int]] = None
-    ) -> Sequence[Union[Anime, Manga]]:
-        """
-        Get media by start year range with logging.
-
-        Args:
-            self: The instance of the class containing the session_maker.
-            media_type: The type of media (Anime or Manga).
-            start_year: The minimum start year.
-            end_year: The maximum start year.
-            limit: The maximum number of results to return. Defaults to 10.
-                   If 0 or less, no limit is applied.
-            media_ids: An optional list of media IDs to filter the results by.
-
-        Returns:
-            A list of Anime or Manga objects matching the year range,
-            optionally filtered by IDs and limited, or an empty list.
-        """
-        logger.info(f"Attempting to retrieve {media_type.value} by start year range: {start_year}-{end_year}.")
-        logger.debug(f"Search parameters: limit={limit}, media_ids={media_ids}")
-
-        model = Anime if media_type == MediaType.ANIME else Manga
-        logger.debug(f"Using model: {model.__name__} for media type: {media_type.value}")
-
-        async with self.session_maker() as session:
-            try:
-                query = select(model).filter(
-                    and_(
-                        model.start_date.isnot(None),
-                        func.extract('year', model.start_date).between(start_year, end_year)
-                    )
-                )
-                logger.debug(
-                    f"Initial query built for {model.__name__} start year between {start_year} and {end_year}.")
-
-                if media_ids:
-                    query = query.filter(model.id.in_(media_ids))
-                    logger.debug(f"Applied media_ids filter: {media_ids}")
-
-                # Corrected limit application: limit if limit > 0 else None
-                if limit > 0:
-                    query = query.limit(limit)
-                    logger.debug(f"Applied limit: {limit}")
-                else:
-                    logger.debug("No limit applied (limit <= 0).")
-
-                logger.debug(f"Executing final query for {media_type.value} by year range.")
-                result = await session.execute(query)
-                media_items = result.scalars().all()
-
-                if media_items:
-                    logger.success(f"Found {len(media_items)} {media_type.value}(s) within year range.")
-                    for item in media_items:
-                        logger.debug(f"  - Found: {item}")
-                else:
-                    logger.warning(f"No {media_type.value}(s) found within the specified year range.")
-                return media_items
-            except SQLAlchemyError as e:
-                logger.error(f"SQLAlchemy Error during get_by_year_range for {media_type.value}: {e}", exc_info=True)
-                return []
-            except Exception as e:
-                logger.error(f"An unexpected error occurred during get_by_year_range for {media_type.value}: {e}",
-                             exc_info=True)
-                return []
-
-    async def get_by_score_range(
-            self,
-            media_type: MediaType,
-            min_score: int,
-            max_score: int,
-            limit: int = 10,
-            media_ids: Optional[List[int]] = None
-    ) -> Sequence[Union[Anime, Manga]]:
-        """
-        Get media by average score range with logging.
-
-        Args:
-            self: The instance of the class containing the session_maker.
-            media_type: The type of media (Anime or Manga).
-            min_score: The minimum average/mean score.
-            max_score: The maximum average/mean score.
-            limit: The maximum number of results to return. Defaults to 10.
-                   If 0 or less, no limit is applied.
-            media_ids: An optional list of media IDs to filter the results by.
-
-        Returns:
-            A list of Anime or Manga objects matching the score range,
-            optionally filtered by IDs and limited, or an empty list.
-        """
-        logger.info(f"Attempting to retrieve {media_type.value} by score range: {min_score}-{max_score}.")
-        logger.debug(f"Search parameters: limit={limit}, media_ids={media_ids}")
-
-        model = Anime if media_type == MediaType.ANIME else Manga
-        logger.debug(f"Using model: {model.__name__} for media type: {media_type.value}")
-
-        async with self.session_maker() as session:
-            try:
-                query = select(model).filter(
-                    or_(
-                        model.average_score.between(min_score, max_score),
-                        model.mean_score.between(min_score, max_score)
-                    )
-                )
-                logger.debug(f"Initial query built for {model.__name__} score between {min_score} and {max_score}.")
-
-                if media_ids:
-                    query = query.filter(model.id.in_(media_ids))
-                    logger.debug(f"Applied media_ids filter: {media_ids}")
-
-                # Corrected limit application: limit if limit > 0 else None
-                if limit > 0:
-                    query = query.limit(limit)
-                    logger.debug(f"Applied limit: {limit}")
-                else:
-                    logger.debug("No limit applied (limit <= 0).")
-
-                logger.debug(f"Executing final query for {media_type.value} by score range.")
-                result = await session.execute(query)
-                media_items = result.scalars().all()
-
-                if media_items:
-                    logger.success(f"Found {len(media_items)} {media_type.value}(s) within score range.")
-                    for item in media_items:
-                        logger.debug(f"  - Found: {item}")
-                else:
-                    logger.warning(f"No {media_type.value}(s) found within the specified score range.")
-                return media_items
-            except SQLAlchemyError as e:
-                logger.error(f"SQLAlchemy Error during get_by_score_range for {media_type.value}: {e}", exc_info=True)
-                return []
-            except Exception as e:
-                logger.error(f"An unexpected error occurred during get_by_score_range for {media_type.value}: {e}",
-                             exc_info=True)
-                return []
-
-    async def get_by_episode_chapter_range(
-            self,
-            media_type: MediaType,
-            min_count: int,
-            max_count: int,
-            limit: int = 10,
-            media_ids: Optional[List[int]] = None
-    ) -> Sequence[Union[Anime, Manga]]:
-        """
-        Get media by episode (Anime) or chapter (Manga) count range with logging.
-
-        Args:
-            self: The instance of the class containing the session_maker.
-            media_type: The type of media (Anime or Manga).
-            min_count: The minimum episode/chapter count.
-            max_count: The maximum episode/chapter count.
-            limit: The maximum number of results to return. Defaults to 10.
-                   If 0 or less, no limit is applied.
-            media_ids: An optional list of media IDs to filter the results by.
-
-        Returns:
-            A list of Anime or Manga objects matching the count range,
-            optionally filtered by IDs and limited, or an empty list.
-        """
-        logger.info(
-            f"Attempting to retrieve {media_type.value} by episode/chapter count range: {min_count}-{max_count}.")
-        logger.debug(f"Search parameters: limit={limit}, media_ids={media_ids}")
-
-        model = Anime if media_type == MediaType.ANIME else Manga
-        logger.debug(f"Using model: {model.__name__} for media type: {media_type.value}")
-
-        # Determine the correct column based on media_type
-        if media_type == MediaType.ANIME:
-            count_column = Anime.episodes
-            logger.debug("Filtering by Anime.episodes.")
-        elif media_type == MediaType.MANGA:
-            count_column = Manga.chapters
-            logger.debug("Filtering by Manga.chapters.")
-        else:
-            logger.warning(
-                f"Unsupported media_type '{media_type.name}' for episode/chapter range. Returning empty list.")
-            return []
-
-        async with self.session_maker() as session:
-            try:
-                query = (
-                    select(model)
-                    .filter(count_column.between(min_count, max_count))
-                )
-                logger.debug(f"Initial query built for {model.__name__} count between {min_count} and {max_count}.")
-
-                if media_ids:
-                    query = query.filter(model.id.in_(media_ids))
-                    logger.debug(f"Applied media_ids filter: {media_ids}")
-
-                # Corrected limit application: limit if limit > 0 else None
-                if limit > 0:
-                    query = query.limit(limit)
-                    logger.debug(f"Applied limit: {limit}")
-                else:
-                    logger.debug("No limit applied (limit <= 0).")
-
-                logger.debug(f"Executing final query for {media_type.value} by episode/chapter range.")
-                result = await session.execute(query)
-                media_items = result.scalars().all()
-
-                if media_items:
-                    logger.success(f"Found {len(media_items)} {media_type.value}(s) within episode/chapter count range.")
-                    for item in media_items:
-                        logger.debug(f"  - Found: {item}")
-                else:
-                    logger.warning(f"No {media_type.value}(s) found within the specified episode/chapter count range.")
-                return media_items
-            except SQLAlchemyError as e:
-                logger.error(f"SQLAlchemy Error during get_by_episode_chapter_range for {media_type.value}: {e}",
-                             exc_info=True)
-                return []
-            except Exception as e:
-                logger.error(
-                    f"An unexpected error occurred during get_by_episode_chapter_range for {media_type.value}: {e}",
-                    exc_info=True)
-                return []

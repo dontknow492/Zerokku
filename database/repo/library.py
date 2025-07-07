@@ -7,13 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, String, and_
 from sqlalchemy.orm import selectinload, Mapped, mapped_column, sessionmaker
 from sqlalchemy.sql import func
-from typing import List, Optional, Dict, Union
+from typing import List, Optional, Dict, Union, Tuple
 from datetime import datetime, timezone
 from enum import Enum
 
-from AnillistPython import MediaType
+from AnillistPython import MediaType, MediaStatus, MediaFormat, MediaSource, MediaSeason
 from database.models import UserLibrary, UserCategory, library_category, Manga, Anime
-from database.repo.media import AsyncMediaRepository
+from database.repo.media import AsyncMediaRepository, SortBy, SortOrder
 
 
 class AsyncLibraryRepository:
@@ -24,7 +24,9 @@ class AsyncLibraryRepository:
         self.user_id = user_id
         self.categories: Dict[str, UserCategory] = {}
 
-        asyncio.ensure_future(self._post_init())
+
+
+        # asyncio.ensure_future(self._post_init())
 
     async def _post_init(self):
         logger.info(f"Starting _post_init for user_id: {self.user_id}")
@@ -72,6 +74,10 @@ class AsyncLibraryRepository:
         else:
             logger.warning(f"No media ID found for library entry ID: {entry.id}")
         return media_id
+
+    def get_library_entry_id_type(self, entry: UserLibrary) -> Optional[Tuple[int, MediaType]]:
+        logger.debug(f"Extracting media ID and type for library entry ID: {entry.id}")
+        return self.get_library_entry_id(entry), self.get_library_entry_type(entry)
 
     async def get_media_data(self, entry: UserLibrary) -> Optional[Union[Anime, Manga]]:
         logger.info(f"Fetching media data for library entry ID: {entry.id}")
@@ -468,6 +474,8 @@ class AsyncLibraryRepository:
                 result = await session.execute(query)
                 categories = result.scalars().all()
                 logger.success(f"Retrieved {len(categories)} categories for user {user_id}.")
+                self.categories.clear()
+                self.categories = {category.name: category for category in categories}
                 return categories
             except Exception as e:
                 logger.error(f"Error retrieving all categories for user {user_id}: {e}", exc_info=True)
@@ -542,3 +550,84 @@ class AsyncLibraryRepository:
                 logger.error(f"Error retrieving all {media_type.name} library entries across all users: {e}",
                              exc_info=True)
                 return []
+
+    async def get_user_library_entries(self, user_id: int, media_type: MediaType) -> Sequence[UserLibrary]:
+        logger.info(f"Fetching {media_type.name} library entries for user {user_id}.")
+        media_filter = UserLibrary.anime_id.is_not(
+            None) if media_type == MediaType.ANIME else UserLibrary.manga_id.is_not(None)
+
+        query = select(UserLibrary).where(
+            UserLibrary.user_id == user_id,
+            media_filter
+        )
+
+        async with self.session_maker() as session:
+            try:
+                async with session.begin():
+                    result = await session.execute(query)
+                    entries = result.scalars().all()
+                    logger.success(f"Found {len(entries)} {media_type.name} entries.")
+                    return entries
+            except Exception as e:
+                logger.error(f"Error fetching library entries: {e}", exc_info=True)
+                return []
+
+    async def get_by_advanced_filters(
+            self,
+            media_type: MediaType,
+            user_id: int,
+            query: Optional[str] = None,
+            min_score: Optional[int] = None,
+            max_score: Optional[int] = None,
+            min_count: Optional[int] = None,
+            max_count: Optional[int] = None,
+            min_duration: Optional[int] = None,
+            max_duration: Optional[int] = None,
+            start_year: Optional[int] = None,
+            end_year: Optional[int] = None,
+            genres: Optional[List[str]] = None,
+            status: Optional[MediaStatus] = None,
+            format: Optional[MediaFormat] = None,
+            source_material: Optional[MediaSource] = None,
+            season: Optional[MediaSeason] = None,
+            sort_by: Optional[SortBy] = SortBy.POPULARITY,
+            order: SortOrder = SortOrder.DESC,
+            limit: int = 10,
+            offset: int = 0
+    ) -> Union[List[Anime], List[Manga]]:
+        logger.info(f"Filtering {media_type.name} results for user {user_id}'s library.")
+
+        library_entries = await self.get_user_library_entries(user_id, media_type)
+        media_ids = list(filter(None, map(self.get_library_entry_id, library_entries)))
+
+        if not media_ids:
+            logger.info(f"No {media_type.name} entries found in user {user_id}'s library.")
+            return []
+
+        logger.debug(f"Applying filters with {len(media_ids)} scoped media_ids for user {user_id}.")
+
+        return await self.media_repo.get_by_advanced_filters(
+            media_type=media_type,
+            query=query,
+            min_score=min_score,
+            max_score=max_score,
+            min_count=min_count,
+            max_count=max_count,
+            min_duration=min_duration,
+            max_duration=max_duration,
+            start_year=start_year,
+            end_year=end_year,
+            genres=genres,
+            status=status,
+            format=format,
+            season=season,
+            source_material=source_material,
+            media_ids=media_ids,
+            sort_by=sort_by,
+            order=order,
+            limit=limit,
+            offset=offset
+        )
+
+
+

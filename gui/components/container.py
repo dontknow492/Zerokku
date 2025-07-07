@@ -667,7 +667,7 @@ class CardContainer(QWidget):
     endReached = Signal()
     requestCover = Signal(str) #url
     cardClicked = Signal(int, object)
-    def __init__(self, variant: MediaVariants = MediaVariants.PORTRAIT, parent=None):
+    def __init__(self, variant: MediaVariants = MediaVariants.PORTRAIT, batch_size: int = 10, parent=None):
         super().__init__(parent)
         logger.info(f"Initializing CardContainer with variant: {variant.name}")
         self._screen_geometry = QApplication.primaryScreen().availableGeometry()
@@ -678,7 +678,7 @@ class CardContainer(QWidget):
         self.card_pixmap_map: Dict[str, MediaCard] = dict()
         self._media_data: List[AnilistMedia] = list()
         self._media_index = 0
-        self._batch_size = 10
+        self.BATCH_SIZE = batch_size
         self.is_skeleton = False
         self.previous_variant = variant
         self.variant = variant
