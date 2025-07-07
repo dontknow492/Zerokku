@@ -33,7 +33,7 @@ class HomeContainers(Enum):
 class HomeInterface(KineticScrollArea):
     CONTAINER_MIN_HEIGHT = 380
     downloaderInitialized = Signal()
-    cardClicked = Signal(int, AnilistMedia)
+    cardClicked = Signal(int, object)
     def __init__(self, screen_geometry:QRect, type: MediaType, parent: QWidget = None):
         super().__init__(parent)
         self.setFrameShape(QFrame.Shape.NoFrame)

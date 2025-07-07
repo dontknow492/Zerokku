@@ -20,6 +20,8 @@ from utils import FontAwesomeRegularIcon, get_scale_factor
 from AnillistPython import AnilistMedia, AnilistScore, AnilistMediaInfo, MediaType, MediaStatus, AnilistTitle, \
     MediaCoverImage, MediaGenre
 
+from database import Anime, Manga, Genre, get_enum_index, get_index_enum
+
 
 class MediaVariants(Enum):
     PORTRAIT = 0
@@ -40,7 +42,7 @@ class MediaCard(CardWidget):
     BODY_FONT_SIZE = 14
 
     #signal
-    cardClicked = Signal(int, AnilistMedia)
+    cardClicked = Signal(int, object)
 
     def __init__(self, variant: MediaVariants = MediaVariants.PORTRAIT, parent=None):
         super().__init__(parent)
@@ -52,7 +54,8 @@ class MediaCard(CardWidget):
         self.rating_color = QColor("green")
         self._is_loading = True
         self._media_id: int = None
-        self._media_data: AnilistMedia = None
+        self._anilist_media_data: AnilistMedia = None
+        self._sql_alchemy_media_data: Union[Anime, Manga] = None
         self._create_widgets()
         # self._create_genre()
         self.setup_ui()
@@ -75,14 +78,14 @@ class MediaCard(CardWidget):
         self.description_label = MyLabel("This is Media Description", self.BODY_FONT_SIZE, self.BODY_FONT_WEIGHT)
         self.description_label.setWordWrap(True)
 
-        self.start_year = 2023
-        self.end_year = 2024
-        self.time_label = MyLabel(f"{self.start_year}-{self.end_year}", self.BODY_FONT_SIZE,
+        self.start_year = -1
+        self.end_year = -1
+        self.time_label = MyLabel(f"{"????"}-{"????"}", self.BODY_FONT_SIZE,
                                   self.STRONG_BODY_FONT_WEIGHT)
-        self.status_label = MyLabel("Releasing", self.BODY_FONT_SIZE, self.STRONG_BODY_FONT_WEIGHT)
+        self.status_label = MyLabel("Unknown", self.BODY_FONT_SIZE, self.STRONG_BODY_FONT_WEIGHT)
 
-        self.release_status_label = MyLabel("Release", self.Title_FONT_SIZE, self.TILE_FONT_WEIGHT)
-        self.release_status_label.setText(f"{self.status_label.text()} {self.start_year}-{self.end_year}")
+        self.release_status_label = MyLabel("Unknown", self.Title_FONT_SIZE, self.TILE_FONT_WEIGHT)
+        self.release_status_label.setText(f"{self.status_label.text()} {"????"}-{"????"}")
 
         self.rating_widget = QFrame()
         layout = QHBoxLayout(self.rating_widget)
@@ -107,11 +110,24 @@ class MediaCard(CardWidget):
         self.media_type = MyLabel("Manga", self.BODY_FONT_SIZE, self.STRONG_BODY_FONT_WEIGHT)
         self.media_episode_chapters = MyLabel("56 Chapters", self.BODY_FONT_SIZE, self.STRONG_BODY_FONT_WEIGHT)
 
+    def _on_card_clicked(self):
+        logger.info(f"Card clicked")
+        if self._anilist_media_data is not None:
+            self.cardClicked.emit(self._media_id, self._anilist_media_data)
+            logger.debug(f"Emitting with Anilist media data")
+        elif self._sql_alchemy_media_data is not None:
+            self.cardClicked.emit(self._media_id, self._sql_alchemy_media_data)
+            logger.debug(f"Emitting with SQL alchemy media data")
+
+
+
     def _create_genre(self, color: QColor):
         self.genre_layout.takeAllWidgets()
         for genre in self.genres:
             if isinstance(genre, MediaGenre):
                 genre = genre.value
+            elif isinstance(genre, Genre):
+                genre = genre.name
             button = OutlinedChip(genre[:15], primary_color=color, border_radius=14)
             button.setMaximumHeight(28)
             self.genre_layout.addWidget(button)
@@ -296,13 +312,22 @@ class MediaCard(CardWidget):
 
         self.adjustSize()
 
-    def setData(self, data: AnilistMedia):
+    def setData(self, data: Union[AnilistMedia, Anime, Manga]):
+        if isinstance(data, AnilistMedia):
+            self._sql_alchemy_media_data = None
+            self._parse_anilist_media(data)
+        elif isinstance(data, (Anime, Manga)):
+            self._anilist_media_data = None
+            self._parse_sql_alchemy_model(data)
+
+
+    def _parse_anilist_media(self, data: AnilistMedia):
         media_id = data.id
         if not id:
             logger.warning(f"Media {media_id} has no ID")
 
         self.setMediaId(media_id)
-        self._media_data = data
+        self._anilist_media_data = data
         self.setMyAniListId(data.idMal)
 
         self.setTitle(data.title.romaji or "Unknown Title")
@@ -344,7 +369,6 @@ class MediaCard(CardWidget):
 
         # Set genres
 
-
         genres = data.genres
         if genres:
             dominant_color = data.coverImage.color if data.coverImage else None
@@ -355,9 +379,63 @@ class MediaCard(CardWidget):
                 dominant_color = ThemeColor.PRIMARY.color()
             self.setGenre(data.genres or [], dominant_color)
 
+    def _parse_sql_alchemy_model(self, data: Union[Anime, Manga]):
+        media_type = MediaType.ANIME if isinstance(data, Anime) else MediaType.MANGA
+        self.setMediaType(media_type)
+        media_id = data.id
 
-        # Debug info
-        # print(f"{count} {count_label}, {favourites} users, {average_score} score, status: {status_value}")
+        self._sql_alchemy_media_data = data
+
+        self.setMediaId(media_id)
+        self.setMyAniListId(data.idMal)
+
+        self.setTitle(data.title_romaji or data.title_english or data.title_native or "Unknown Title")
+        self.description_label.setText(data.description or "No description available.")
+
+        # Set rating and user count
+        average_score = data.average_score or data.mean_score or -1
+        self.setRating(average_score)
+
+        favourites = data.favourites or data.popularity or -1
+        self.setUsers(favourites)
+
+            # Set status
+        status_id = data.status_id
+        self.setStatus(status=get_index_enum(MediaStatus, status_id))
+
+        # Set airing/publishing years
+        start_year = data.start_date.year if data.start_date else None
+
+        end_year = data.end_date.year if data.end_date else datetime.datetime.today().year
+        self.setYear(start_year, end_year)
+
+        # Set media type and episode/chapter count
+
+
+        count = 0
+        count_label = "unknown"
+        if media_type == MediaType.MANGA:
+            count = data.chapters or -1
+            count_label = "chapters"
+        elif media_type == MediaType.ANIME:
+            count = data.episodes or -1
+            count_label = "episodes"
+        self.setMediaEpisodeChapters(count, count_label)
+
+        # Set genres
+
+        genres = data.genres
+        if genres:
+            dominant_color = data.cover_image_color
+            if dominant_color:
+                dominant_color = QColor(dominant_color)
+                # logger.critical(f"Media has  dominant color: {dominant_color}")
+            else:
+                dominant_color = ThemeColor.PRIMARY.color()
+            self.setGenre(data.genres or [], dominant_color)
+
+
+
     def setMediaId(self, media_id: int):
         self._media_id = media_id
 
@@ -416,6 +494,7 @@ class MediaCard(CardWidget):
             else:
                 status = status.value
         self.status_label.setText(status)
+        self.release_status_label.setText(f"{self.status_label.text()} • {self.start_year}-{self.end_year}")
 
     def setYear(self, start_year: int, end_year: int):
         if start_year is None or end_year is None:
@@ -425,6 +504,7 @@ class MediaCard(CardWidget):
         start_year = start_year if start_year > 0 else "????"
         end_year = end_year if end_year > 0 else "????"
         self.time_label.setText(f"{start_year}-{end_year}")
+        self.release_status_label.setText(f"{self.status_label.text()} • {self.start_year}-{self.end_year}")
 
     def setMediaType(self, media_type: MediaType):
         if media_type is None:
@@ -446,7 +526,7 @@ class MediaCard(CardWidget):
         else:
             self.cover_label.setScaledSize(self.COVER_SIZE)
 
-    def setGenre(self, genres: List[Union[str, MediaGenre]], color: QColor = ThemeColor.PRIMARY.color()):
+    def setGenre(self, genres: List[Union[str, MediaGenre, Genre]], color: QColor = ThemeColor.PRIMARY.color()):
         if genres is None or len(genres) == 0:
             return
         self.genres = genres
@@ -470,11 +550,10 @@ class MediaCard(CardWidget):
             distance = (release_pos - self._press_pos).manhattanLength()
 
             if distance < self._drag_threshold:
-                print("Mouse Clicked!")
-                self.cardClicked.emit(self._media_id, self._media_data)
+                self._on_card_clicked()
                 # handle your click action here
             else:
-                print("Drag detected, ignoring click.")
+                logger.debug("Drag detected, ignoring click.")
         self._press_pos = None
         super().mouseReleaseEvent(event)
 
@@ -539,16 +618,52 @@ class MediaRelationCard(CardWidget):
 # Example usage
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    ex = MediaCard(MediaVariants.LANDSCAPE)
+    ex = MediaCard(MediaVariants.WIDE_LANDSCAPE)
+    ex.cardClicked.connect(print)
     genres = [MediaGenre.ACTION, MediaGenre.ROMANCE, MediaGenre.ADVENTURE]
     color = QColor.fromRgbF(0.839216, 0.262745, 0.101961, 1.000000)
 
     data = AnilistMedia(
         id = 1,
-        title=AnilistTitle("2", "2", "2"),
+        title=AnilistTitle("Attack on Titan", "Attack on Titan", "Attack on Titan"),
         genres=genres,
         coverImage= MediaCoverImage(color = color.name())
     )
+    genre_1 = Genre(id = 1, name="Action")
+    genre_2 = Genre(id = 2, name="Roman")
+    genre_3 = Genre(id = 3, name="Adventure")
+
+    anime = Anime(
+        id = 1,
+        title_english="Attack on Titan",
+        title_native="Attack on Titan",
+        title_romaji="Attack on Titan",
+        cover_image_color=color.name(),
+        genres = [genre_1, genre_2, genre_3],
+        description="this is description",
+        start_date= datetime.date.today(),
+        end_date= datetime.date.today(),
+        status_id = 0,
+        average_score= 56,
+        mean_score=45,
+        episodes=13
+    )
+    manga = Manga(
+        id=1,
+        title_english="Attack on Titan",
+        title_native="Attack on Titan",
+        title_romaji="Attack on Titan",
+        cover_image_color=color.name(),
+        genres=[genre_1, genre_2, genre_3],
+        description="this is description",
+        start_date=datetime.date.today(),
+        end_date=datetime.date.today(),
+        status_id=0,
+        average_score=56,
+        mean_score=45,
+        chapters=56
+    )
+
     test = QColor(color.name())
     print(test)
     ex.setData(data)

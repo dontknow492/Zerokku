@@ -2,6 +2,7 @@ import asyncio
 
 from loguru import logger
 from numpy.random.mtrand import Sequence
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, String, and_
 from sqlalchemy.orm import selectinload, Mapped, mapped_column, sessionmaker
@@ -319,80 +320,112 @@ class AsyncLibraryRepository:
 
         async with self.session_maker() as session:
             try:
-                # Re-attach the object to the session if it's detached from get_library_entry
-                session.add(existing_entry)  # This will merge it if it's detached
-                await session.delete(existing_entry)
+                # Merge the existing entry to the session in case it's detached
+                merged_entry = await session.merge(existing_entry)
+                await session.delete(merged_entry)
                 await session.commit()
 
-                if session.query(UserLibrary).filter_by(id=library_id).scalar() is None:  # Verify deletion
+                # Verify deletion using async-compatible select
+                result = await session.execute(select(UserLibrary).filter_by(id=library_id))
+                if result.scalar_one_or_none() is None:
                     logger.success(f"Successfully deleted library entry ID: {library_id}.")
                     return True
                 else:
                     logger.warning(f"Deletion of library entry ID {library_id} seemed to fail, entry still exists.")
                     return False
-            except Exception as e:
+
+            except SQLAlchemyError as e:
                 await session.rollback()
                 logger.error(f"Error deleting library entry ID {library_id}: {e}", exc_info=True)
                 return False
+            except:
+                raise
+
+    async def delete_category(self, category_id: int) -> bool:
+        """Delete a category by its ID."""
+        logger.info(f"Attempting to delete category with ID: {category_id}.")
+        category = await self.get_category_from_id(category_id)
+        if not category:
+            logger.warning(f"Delete failed: Category with ID {category_id} not found.")
+            return False
+
+        async with self.session_maker() as session:
+            try:
+                async with session.begin():
+                    await session.delete(category)
+                    self.categories.pop(category.name, None)
+
+                    return True
+
+            except SQLAlchemyError as e:
+                await session.rollback()
+                logger.error(f"Error deleting category ID {category_id}: {e}", exc_info=True)
+                return False
+            except:
+                raise
 
     async def add_category_to_library_entry(self, library_id: int, category_id: int) -> bool:
         """Add a category to a library entry."""
         logger.info(f"Attempting to add category {category_id} to library entry {library_id}.")
         async with self.session_maker() as session:
-            try:
-                library_entry = await session.get(UserLibrary, library_id,
-                                                  options=[selectinload(UserLibrary.categories)])
-                if not library_entry:
-                    logger.warning(f"Failed to add category: Library entry {library_id} not found.")
+            async with session.begin():
+                try:
+                    library_entry = await session.get(
+                        UserLibrary,
+                        library_id,
+                        options=[selectinload(UserLibrary.categories)]
+                    )
+                    if not library_entry:
+                        logger.warning(f"Failed to add category: Library entry {library_id} not found.")
+                        return False
+
+                    category = await session.get(UserCategory, category_id)
+                    if not category:
+                        logger.warning(f"Failed to add category: Category {category_id} not found.")
+                        return False
+
+                    if category in library_entry.categories:
+                        logger.info(f"Category {category_id} already associated with library entry {library_id}.")
+                        return False
+
+                    library_entry.categories.append(category)
+                    logger.success(f"Successfully added category {category_id} to library entry {library_id}.")
+                    return True
+
+                except Exception as e:
+                    logger.error(f"Error adding category {category_id} to library entry {library_id}: {e}",
+                                 exc_info=True)
                     return False
-
-                category = await session.get(UserCategory, category_id)
-                if not category:
-                    logger.warning(f"Failed to add category: Category {category_id} not found.")
-                    return False
-
-                if category in library_entry.categories:
-                    logger.info(f"Category {category_id} already associated with library entry {library_id}.")
-                    return False  # Already associated
-
-                library_entry.categories.append(category)
-                await session.commit()
-                logger.success(f"Successfully added category {category_id} to library entry {library_id}.")
-                return True
-            except Exception as e:
-                await session.rollback()
-                logger.error(f"Error adding category {category_id} to library entry {library_id}: {e}", exc_info=True)
-                return False
 
     async def remove_category_from_library_entry(self, library_id: int, category_id: int) -> bool:
         """Remove a category from a library entry."""
         logger.info(f"Attempting to remove category {category_id} from library entry {library_id}.")
         async with self.session_maker() as session:
-            try:
-                library_entry = await session.get(UserLibrary, library_id,
-                                                  options=[selectinload(UserLibrary.categories)])
-                if not library_entry:
-                    logger.warning(f"Failed to remove category: Library entry {library_id} not found.")
+            async with session.begin():
+                try:
+                    library_entry = await session.get(UserLibrary, library_id,
+                                                      options=[selectinload(UserLibrary.categories)])
+                    if not library_entry:
+                        logger.warning(f"Failed to remove category: Library entry {library_id} not found.")
+                        return False
+
+                    category = await session.get(UserCategory, category_id)
+                    if not category:
+                        logger.warning(f"Failed to remove category: Category {category_id} not found.")
+                        return False
+
+                    if category not in library_entry.categories:
+                        logger.info(f"Category {category_id} is not associated with library entry {library_id}.")
+                        return False  # Not associated
+
+                    library_entry.categories.remove(category)
+                    # await session.commit()
+                    logger.success(f"Successfully removed category {category_id} from library entry {library_id}.")
+                    return True
+                except Exception as e:
+                    logger.error(f"Error removing category {category_id} from library entry {library_id}: {e}",
+                                 exc_info=True)
                     return False
-
-                category = await session.get(UserCategory, category_id)
-                if not category:
-                    logger.warning(f"Failed to remove category: Category {category_id} not found.")
-                    return False
-
-                if category not in library_entry.categories:
-                    logger.info(f"Category {category_id} is not associated with library entry {library_id}.")
-                    return False  # Not associated
-
-                library_entry.categories.remove(category)
-                await session.commit()
-                logger.success(f"Successfully removed category {category_id} from library entry {library_id}.")
-                return True
-            except Exception as e:
-                await session.rollback()
-                logger.error(f"Error removing category {category_id} from library entry {library_id}: {e}",
-                             exc_info=True)
-                return False
 
     async def get_library_entries_by_category(
             self, user_id: int, category_id: int, media_type: Optional[MediaType] = None

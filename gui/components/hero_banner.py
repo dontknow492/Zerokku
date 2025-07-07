@@ -9,6 +9,8 @@ from loguru import logger
 
 from qfluentwidgets import PipsPager, FlowLayout, PushButton, ImageLabel, setTheme, Theme, FluentIcon
 
+from AnillistPython import MediaGenre
+from database import Genre
 from gui.components import HeroContainerSkeleton
 from gui.common import AniStackedWidget, MyLabel, MultiLineElideLabel, OutlinedChip, RoundedToolButton, Chip
 from utils import apply_gradient_overlay_pixmap, create_left_gradient_pixmap, add_margins_pixmap
@@ -66,10 +68,14 @@ class HeroBanner(QWidget):
         self.container.move(0, self._size.height() - self.container.height())
 
 
-    def _create_genres(self, genres: List[str], color: QColor):
+    def _create_genres(self, genres: List[Union[str, MediaGenre, Genre]], color: QColor):
         for genre in genres:
             # genre = Chip(genre.title(), None, color, color.lighter(100), QColor("gray"), parent=self)
             # color.setRgb(100, 100, 100)
+            if isinstance(genre, Genre):
+                genre = genre.name
+            elif isinstance(genre, MediaGenre):
+                genre = genre.value
             genre = OutlinedChip(genre.title(), None, color, parent=self)
             self.genre_layout.addWidget(genre)
 

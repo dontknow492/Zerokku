@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional
+from typing import Optional, Union
 
 from PySide6.QtCore import QRect, QTimer
 from PySide6.QtGui import QIcon, QColor
@@ -13,6 +13,7 @@ from qfluentwidgets.window.stacked_widget import StackedWidget
 
 from AnillistPython import MediaType, MediaQueryBuilderBase, SearchQueryBuilder, MediaSeason, MediaSort, \
     MediaQueryBuilder, AnilistMedia
+from database import Anime, Manga
 from gui.common import KineticScrollArea
 from gui.interface import HomeInterface, SearchInterface, LibraryInterface, DownloadInterface, MediaPage
 
@@ -84,7 +85,8 @@ class MainWindow(MSFluentWindow):
         self.stackedWidget.addWidget(self.page_interface)
 
 
-    def on_card_clicked(self, media_id: int, media_data: AnilistMedia):
+    def on_card_clicked(self, media_id: int, media_data: Union[AnilistMedia, Anime, Manga]):
+        logger.debug(f"Media: {media_id}, type: {type(media_data)}")
         self.switchTo(self.page_interface)
 
     @asyncSlot()
@@ -133,6 +135,7 @@ class MainWindow(MSFluentWindow):
 
         #search
         self.search_interface.searchSignal.connect(self.search)
+        self.search_interface.cardClicked.connect(self.on_card_clicked)
 
     @asyncSlot()
     async def get_hero_media(self, media_type: MediaType, items: int = 1):

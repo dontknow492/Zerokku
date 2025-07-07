@@ -45,6 +45,7 @@ class BaseMediaContainer(QWidget):
     CHUNK_SIZE: int = 10
 
     chunk_loaded = Signal()
+    cardClicked = Signal(int, object)
 
     def __init__(self, skeletons: int = 7, parent=None):
         super().__init__(parent)
@@ -218,6 +219,7 @@ class BaseMediaContainer(QWidget):
     def _create_card(self, media: AnilistMedia) -> MediaCard:
         logger.trace(f"Creating media card for: {media.title.romaji}")
         card = MediaCard(self.Variant)
+        card.cardClicked.connect(self.cardClicked.emit)
         card.setData(media)
         self.add_download(media.coverImage.large, card)
         return card
@@ -375,7 +377,7 @@ class WideLandscapeContainer(BaseMediaContainer):
 
 class ViewMoreContainer(QWidget):
     seeMoreSignal = Signal()
-    cardClicked = Signal(int, AnilistMedia)
+    cardClicked = Signal(int, object)
     requestCover = Signal(str)
     MAX_CARDS = 25
     MAX_SKELETON = 10
@@ -664,6 +666,7 @@ class CardContainer(QWidget):
     switchingFinished = Signal()
     endReached = Signal()
     requestCover = Signal(str) #url
+    cardClicked = Signal(int, object)
     def __init__(self, variant: MediaVariants = MediaVariants.PORTRAIT, parent=None):
         super().__init__(parent)
         logger.info(f"Initializing CardContainer with variant: {variant.name}")
@@ -745,6 +748,11 @@ class CardContainer(QWidget):
         self.portrait_container.requestCover.connect(self.requestCover.emit)
         self.landscape_container.requestCover.connect(self.requestCover.emit)
         self.wide_landscape_container.requestCover.connect(self.requestCover.emit)
+
+        #cardclick
+        self.portrait_container.cardClicked.connect(self.cardClicked.emit)
+        self.landscape_container.cardClicked.connect(self.cardClicked.emit)
+        self.wide_landscape_container.cardClicked.connect(self.cardClicked.emit)
 
     def show_loading(self):
         self.portrait_container.show_all_skeletons()

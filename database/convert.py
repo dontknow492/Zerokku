@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 from enum import EnumType, Enum
-from typing import Union, List, Dict
+from typing import Union, List, Dict, Type, Optional
 
 from pywin.dialogs import status
 
@@ -129,6 +129,35 @@ def get_enum_index(enum_class: type[Enum], enum_value: Enum) -> int | None:
         raise TypeError(f"enum_value must be an instance of {enum_class}, got {type(enum_value)}")
 
     return media_enum_to_index.get(enum_class, {}).get(enum_value)
+
+def get_index_enum(enum_class: type[Enum], enum_idx: int) -> Enum | None:
+    """
+    Returns the enum value from the specified enum class by its index,
+    using the media_enum_to_index mapping.
+
+    Args:
+        enum_class: The enum class (e.g., MediaGenre).
+        enum_idx: The index of the enum value.
+
+    Returns:
+        The enum value if found, otherwise None.
+
+    Raises:
+        TypeError: If enum_class is not a subclass of Enum.
+    """
+    if not isinstance(enum_class, type) or not issubclass(enum_class, Enum):
+        raise TypeError(f"enum_class must be a subclass of Enum, got {enum_class}")
+
+    enum_map = media_enum_to_index.get(enum_class)
+    if not enum_map:
+        return None
+
+    # Reverse lookup: index → enum
+    for enum_value, idx in enum_map.items():
+        if idx == enum_idx:
+            return enum_value
+
+    return None
 
 
 

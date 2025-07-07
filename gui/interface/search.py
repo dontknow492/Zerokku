@@ -134,6 +134,7 @@ class FilterNavigation(QWidget):
 
 class SearchBar(QWidget):
     searchSignal = Signal(str)
+    cardClicked = Signal(int, object)
     def __init__(self, tags_path: str, parent=None):
         super().__init__(parent)
 
@@ -179,6 +180,7 @@ class SearchBar(QWidget):
         self.filter_button.clicked.connect(lambda: self.searchSignal.emit(self.search_bar.text()))
 
         self.type_filter.enumChanged.connect(self._on_type_change)
+
 
 
     def _on_type_change(self, media_type: MediaType):
@@ -613,6 +615,7 @@ class AdvanceFilter(FlyoutViewBase):
 
 class SearchInterface(QWidget):
     PER_PAGE = 12
+    cardClicked = Signal(int, object)
     searchSignal = Signal(MediaType, MediaQueryBuilder, SearchQueryBuilder, str, int, int) #query, builder, page, perpage
     def __init__(self, tags_path: str,  parent=None):
         super().__init__(parent)
@@ -663,6 +666,7 @@ class SearchInterface(QWidget):
         self.view_stack.switchingFinished.connect(self._on_switching_finished)
 
         self.view_stack.requestCover.connect(self._on_cover_request)
+        self.view_stack.cardClicked.connect(self.cardClicked.emit)
 
     @asyncSlot(str)
     async def _on_cover_request(self, url):

@@ -1,5 +1,6 @@
 from datetime import datetime
-from typing import List, Union, Dict
+from pathlib import Path
+from typing import List, Union, Dict, Optional
 
 import sys
 from PySide6.QtCore import QSize, Qt, QMargins, QPoint, QRect, QTimer, Signal
@@ -12,11 +13,13 @@ from qfluentwidgets import TransparentToolButton, TransparentPushButton, FluentI
     isDarkTheme, setTheme, Theme, FlowLayout, PipsPager, ComboBox
 from scipy.cluster.hierarchy import average
 
-from AnillistPython import MediaStatus, AnilistEpisode, MediaType, AnilistMedia, AnilistTag
+from AnillistPython import MediaStatus, AnilistEpisode, MediaType, AnilistMedia, AnilistTag, MediaGenre, AnilistTitle, \
+    AnilistScore, AnilistMediaInfo
+from database import Manga, Anime, Genre, get_index_enum, Tag
 from gui.common import MyLabel, MultiLineElideLabel, WaitingLabel, MyImageLabel, KineticScrollArea, RoundedToolButton, \
     RoundedPushButton, AniStackedWidget
 from gui.components.watch_card import WatchCardVariant, WatchCard
-from gui.components import ViewMoreContainer, WatchCardLandscapeSkeleton, WatchCardCoverSkeleton
+from gui.components import ViewMoreContainer, WatchCardLandscapeSkeleton, WatchCardCoverSkeleton, MediaCard
 
 
 class SideBar(QWidget):
@@ -47,19 +50,22 @@ class SideBar(QWidget):
         return title_label
 
 class EpisodeWidget(QWidget):
-    def __init__(self, series_name: str, perpage: int = 25, parent=None):
+    requestImage = Signal(str)
+    def __init__(self, series_name: str, media_type: MediaType, perpage: int = 25, parent=None):
         super().__init__(parent)
         self._sort = "ascending"
         self.duration: int = 0
         self.series_name = series_name
+        self.media_type = media_type
         self.episodes: Dict[QWidget, List[WatchCard]] = {}
+        self.episode_image_map: Dict[str, WatchCard] = {}
 
         self.episodes_skeleton = [WatchCardCoverSkeleton() for _ in range(9)]
 
         self.total_episodes: int = 0
         self.episode_index: int = 0
         self.perpage: int = perpage
-        self.is_anime: bool = True
+        self.is_anime = True if self.media_type == MediaType.ANIME else False
         self.default_series_cover: QPixmap = QPixmap()
         self.default_landscape_cover: QPixmap = QPixmap()
         self.default_cover: QPixmap = QPixmap()
@@ -69,7 +75,10 @@ class EpisodeWidget(QWidget):
         self.navigation_bar = QWidget(self)
 
         self.title_label = MyLabel("Episode", 24, QFont.Weight.Bold, parent=self.navigation_bar)
+        self.source_box = ComboBox(self.navigation_bar)
+        self.source_box.setPlaceholderText("Source")
         self.sort_box = ComboBox(self.navigation_bar)
+        self.settting_button = ToolButton(FluentIcon.SETTING, self.navigation_bar)
         self.page_box = ComboBox(self.navigation_bar)
 
         items = ["Ascending", "Descending"]
@@ -96,7 +105,9 @@ class EpisodeWidget(QWidget):
         nav_layout.setSpacing(10)
         nav_layout.addWidget(self.title_label)
         nav_layout.addWidget(self.page_box, stretch=1)
+        nav_layout.addWidget(self.source_box)
         nav_layout.addWidget(self.sort_box)
+        nav_layout.addWidget(self.settting_button)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -111,8 +122,14 @@ class EpisodeWidget(QWidget):
 
         self.page_box.currentIndexChanged.connect(self.on_page_change)
 
-    def setEpisodes(self, episodes_data: list[AnilistEpisode],
-                    type: MediaType, series_name: str, episodes: int, duration: int, default_cover: QPixmap):
+    def on_image_downloaded(self, url: str, pixmap: QPixmap, path: Path) -> None:
+        if card:=self.episode_image_map.pop(url):
+            if pixmap and not pixmap.isNull():
+                card.setThumbnail(pixmap)
+
+
+    def setEpisodes(self, episodes_data: list[AnilistEpisode]
+                    , series_name: str, episodes: int, duration: int, default_cover: QPixmap):
 
         #deleating skeleon
         self.episode_stack.removeWidget(self.skeleton_widget)
@@ -121,7 +138,7 @@ class EpisodeWidget(QWidget):
         self.skeleton_widget.deleteLater()
         self.episodes_skeleton.clear()
 
-        self.is_anime = True if type == MediaType.ANIME else False
+
         self.title_label.setText("Episodes" if self.is_anime else "Chapters")
         self.total_episodes = episodes
         self.duration = duration
@@ -194,6 +211,7 @@ class EpisodeWidget(QWidget):
             thumbnail = None
 
         card.setTitle(title)
+        card.setObjectName(f"ep-ch-{episode_num}")
         card.setEpisodeChapter(episode_num, is_episode= self.is_anime)
         card.setMediaTitle(self.series_name)
         card.setDate(datetime.today())
@@ -264,6 +282,23 @@ class EpisodeWidget(QWidget):
             logger.debug(f"{index}: {card.episode}")
             layout.insertWidget(index, card)
 
+    def update_card(self, number: int, title: Optional[str]=None, series_name: Optional[str]=None,
+                    thumbnail: Optional[Union[str, QPixmap, Path]] = None, duration: Optional[int] = None):
+        obj_name = f"ep-ch-{number}"
+        card = self.layout().findChild(WatchCard, obj_name)
+        if card:
+            if title:
+                card.setTitle(title)
+            if series_name:
+                card.setMediaTitle(series_name)
+            if thumbnail:
+                card.setThumbnail(thumbnail)
+            if duration:
+                card.setDuration(duration)
+
+
+
+
 
 
 
@@ -273,16 +308,25 @@ class MediaPage(KineticScrollArea):
     BANNER_SIZE = None
     #signal
     requestImage = Signal(str)          # url
-    requestData = Signal(int)           # media id
+    requestData = Signal(int)
+    requestRecommendation = Signal(int)
+    requestEpisode = Signal(int)
+    # media id
     def __init__(self, available_screen: QRect, media_type: MediaType, parent=None):
         super().__init__(parent)
 
+        self._media_id = None
         self.media_type = media_type
+        self.image_map:Dict[str, Union[WatchCard, MediaCard, WaitingLabel]] = dict()
+        self._anilist_media_data: AnilistMedia = None
+        self._sql_alchemy_media_data: Union[Anime, Manga] = None
         self._screen_geometry = available_screen
+
 
         self.BANNER_SIZE = QSize(self._screen_geometry.width(), int(self._screen_geometry.height() * 0.7))
 
         self.container = QWidget(self)
+        self.container.setMaximumWidth(self._screen_geometry.width())
         self.container_layout = QVBoxLayout(self.container)
         self.container_layout.setContentsMargins(0, 0, 0, 0)
         self.container.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
@@ -388,11 +432,6 @@ class MediaPage(KineticScrollArea):
         self.central_widget = self._init_central_container_ui()
         self.side_bar = self._init_sidebar_ui()
 
-
-
-
-
-
     @staticmethod
     def _create_rounded_button(icon, icon_size: QSize, tooltip:str, cursor:QCursor, radius:int, min_height: int):
         button = RoundedToolButton(icon)
@@ -409,6 +448,19 @@ class MediaPage(KineticScrollArea):
 
         self.container_layout.addWidget(self.banner_label, alignment=Qt.AlignmentFlag.AlignTop)
         self.container_layout.addWidget(self.bottom_container)
+
+
+    def add_download(self, url, card):
+        if url and card:
+            self.image_map[url] = card
+            self.requestImage.emit(url)
+
+    def on_image_downloaded(self, url: str, pixmap: QPixmap, path: Path) -> None:
+        if card:= self.image_map.pop(url):
+            if pixmap and not pixmap.isNull():
+                card.setCover(pixmap)
+            else:
+                card.setCover(path)
 
 
     def _init_top_container_ui(self):
@@ -465,7 +517,7 @@ class MediaPage(KineticScrollArea):
 
     def _init_central_container_ui(self):
         central_container = QWidget(self)
-        self.episode_container = EpisodeWidget("My Dress up Darling", parent = self)
+        self.episode_container = EpisodeWidget("My Dress up Darling", self.media_type, parent = self)
 
         central_layout = QVBoxLayout(central_container)
         central_layout.setSpacing(10)
@@ -497,10 +549,19 @@ class MediaPage(KineticScrollArea):
         return side_bar
 
 
-    def setData(self, data: AnilistMedia):
+    def setData(self, data: Union[AnilistMedia, Anime, Manga]):
+        if isinstance(data, AnilistMedia):
+            self._sql_alchemy_media_data = None
+            self._parse_anilist_media(data)
+        elif isinstance(data, (Anime, Manga)):
+            self._anilist_media_data = None
+            self._parse_sql_alchemy_model(data)
+
+    def _parse_anilist_media(self, data: AnilistMedia):
+        self.setMediaId(data.id)
         title = data.title
         self.setTitle(title.romaji or title.english or title.native)
-        self.setGenre(data.genres)
+        self.setGenre(data.genres or [])
         score = data.score
         if score:
             self.setMeanScore(score.mean_score)
@@ -508,10 +569,14 @@ class MediaPage(KineticScrollArea):
 
         self.setOverview(data.description)
         cover_image = data.coverImage.extraLarge
-        banner_image = data.bannerImage or cover_image
+        banner_image = data.bannerImage
+
+        self.add_download(cover_image, self.cover_label)
+        self.add_download(banner_image, self.banner_label)
+
         episodes = data.episodes
 
-        #extra
+        # extra
         info = data.info
         if info:
             self.setStatus(info.status)
@@ -527,18 +592,50 @@ class MediaPage(KineticScrollArea):
 
         self.setTags(data.tags)
 
-    def setTags(self, tags: List[AnilistTag]):
+    def _parse_sql_alchemy_model(self, data: Union[Anime, Manga]):
+        self.setMediaId(data.id)
+        self.setTitle(data.title_romaji or data.title_english or data.title_native)
+        self.setGenre(data.genres or [])
+        self.setMeanScore(data.mean_score)
+        self.setAverageScore(data.average_score)
+        self.setPopularity(data.popularity)
+        self.setFavorites(data.favourites)
+        self.setOverview(data.description)
+
+        self.setRating(data.mean_score or data.average_score)
+
+        cover_image = data.cover_image_extra_large or data.cover_image_large
+        banner_image = data.cover_image_extra_large or data.banner_image
+        episodes = data.episodes
+
+        status_id = data.status_id
+        status = get_index_enum(MediaStatus, status_id)
+
+        self.setStatus(status)
+
+        self.setStartDate(data.start_date)
+        self.setEndDate(data.end_date)
+
+        self.setSynonyms(data.synonyms)
+
+        self.setTags(data.tags)
+
+
+    def setTags(self, tags: List[Union[AnilistTag, Tag]]):
+        if tags is None:
+            return
         for tag in tags:
-            if isinstance(tag, AnilistTag):
-                name = tag.name
-                if name:
-                    self._create_tag(name)
+            self._create_tag(tag)
 
 
-    def _create_genres(self, genres: List[str]):
+    def _create_genres(self, genres: List[Union[MediaGenre, Genre, str]]):
         self.genre_layout.setSpacing(0)
         self.genre_layout.setContentsMargins(0, 0, 0, 0)
         for genre in genres:
+            if isinstance(genre, MediaGenre):
+                genre = genre.value
+            elif isinstance(genre, Genre):
+                genre = genre.name
             button = TransparentPushButton(genre, parent=self)
             button.setContentsMargins(0, 0, 0, 0)
             button.setFont(self._body_font)
@@ -547,25 +644,45 @@ class MediaPage(KineticScrollArea):
 
         self.genre_layout.addStretch(1)
 
-    def _create_tag(self, tag: str):
+
+
+    def _create_tag(self, tag: Union[dict, Tag, AnilistTag]):
         # for tag in tags:
-        name = tag["name"]
-        tag_id = tag["id"]
+        if isinstance(tag, Tag):
+            name = tag.name
+            tag_id = tag.id
+        elif isinstance(tag, dict):
+            name = tag["name"]
+            tag_id = tag["id"]
+        elif isinstance(tag, AnilistTag):
+            name = tag.name
+            tag_id = tag.id
+        else:
+            return
         button = RoundedPushButton(name, parent=self)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setFont(self._body_font)
         self.tags_layout.addWidget(button)
 
     def _create_synonyms(self, synonyms: List[str]):
-        for syn in synonyms:
+        if synonyms is None:
+            return
+        for index, syn in enumerate(synonyms, start=1):
             syn = syn.strip()
-            label = MyLabel(syn, parent=self)
+            if not syn:
+                continue
+            # num_label = MyLabel(f"{index:02d}")
+            label = MyLabel(f"{index:02d}. {syn}", parent=self)
+            label.setWordWrap(True)
             label.setFont(self._body_font)
             label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             label.setCursor(Qt.CursorShape.IBeamCursor)
             self.synonyms_layout.addWidget(label, alignment=Qt.AlignmentFlag.AlignLeft)
 
         # self.side_bar.addLayout("Synonyms", self.synonyms_layout)
+
+    def setMediaId(self, media_id: int):
+        self._media_id = media_id
 
     def setTitle(self, title: str):
         if title is None:
@@ -619,7 +736,7 @@ class MediaPage(KineticScrollArea):
     def setStatus(self, status: MediaStatus):
         if status is None:
             status = MediaStatus.RELEASING
-        self.status_label.setText(str(status))
+        self.status_label.setText(status.value)
 
     def setPopularity(self, popularity: int):
         if popularity is None:
@@ -680,7 +797,13 @@ class MediaPage(KineticScrollArea):
         )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    episode = EpisodeWidget("Naruto", MediaType.ANIME, 13)
+    episode.show()
+    app.exec()
+
+if __name__ == '__main__2':
     setTheme(Theme.DARK)
     media_type = MediaType.ANIME
     title = "My Dress Up Darling"
@@ -711,8 +834,6 @@ if __name__ == '__main__':
     mean_score = 89
     episodes = 12
     duration = 24
-
-
 
     tags =  [
         {
@@ -848,24 +969,63 @@ if __name__ == '__main__':
     main_page = MediaPage(screen_geometry, media_type)
     main_page.showMaximized()
 
-    # main_page.setOverview(description)
-    # main_page.setRating(rating)
-    # main_page.setGenre(genres)
-    # main_page.setTitle(title)
-    # main_page.setCover(cover)
-    # main_page.setSynonyms(synonyms)
-    # main_page.setTags(tags)
-    # main_page.setPopularity(popularity)
-    # main_page.setFavorites(favourites)
-    # main_page.setAverageScore(average_score)
-    # main_page.setMeanScore(mean_score)
-    # main_page.setStatus(status)
-    # main_page.setStartDate(start_date)
-    # main_page.setEndDate(end_date)
-    # main_page.setBanner(banner)
-    # main_page.setTopContainerColor(dominant_color)
-    # main_page.setEpisode(episodes, [], duration)
+    sql_tags = []
+    anilist_tags = []
+    for tag in tags:
+        id = tag["id"]
+        name = tag["name"]
+        sql_tags.append(Tag(id=id, name=name))
+        anilist_tags.append(AnilistTag(id=id, name=name))
 
-    QTimer.singleShot(2000, lambda :main_page.horizontalScrollBar().setMaximum(0))
+    data = AnilistMedia(
+        id = 1,
+        media_type = media_type,
+        title= AnilistTitle(english=title, native=title, romaji=title ),
+        description= description,
+        duration=duration,
+        episodes=episodes,
+        score = AnilistScore(
+            id = 1,
+            average_score=average_score, mean_score=mean_score,
+            popularity=popularity, favourites=favourites
+        ),
+        info = AnilistMediaInfo(
+            id = 1,
+            status = status,
+        ),
+        startDate = start_date,
+        endDate = end_date,
+        bannerImage=banner,
+        tags = tags,
+        synonyms=synonyms,
+
+    )
+    genre_1 = Genre(id=1, name="Action")
+    genre_2 = Genre(id=2, name="Roman")
+    genre_3 = Genre(id=3, name="Adventure")
+
+
+
+    anime = Anime(
+        id = 1,
+        title_english=title,
+        title_native=title,
+        title_romaji=title,
+        description=description,
+        duration=duration,
+        episodes=episodes,
+        average_score=average_score,
+        mean_score=mean_score,
+        popularity=popularity,
+        favourites=favourites,
+        status_id=0,
+        genres=[genre_1, genre_2, genre_3],
+        start_date=start_date,
+        end_date=end_date,
+        tags=sql_tags,
+        synonyms=synonyms,
+    )
+
+    main_page.setData(anime)
 
     app.exec()
