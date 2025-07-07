@@ -3,7 +3,7 @@ import asyncio
 from loguru import logger
 from numpy.random.mtrand import Sequence
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, String
+from sqlalchemy import select, delete, String, and_
 from sqlalchemy.orm import selectinload, Mapped, mapped_column, sessionmaker
 from sqlalchemy.sql import func
 from typing import List, Optional, Dict, Union
@@ -40,6 +40,13 @@ class AsyncLibraryRepository:
     def get_categories(self) -> Dict[str, UserCategory]:
         logger.debug(f"Retrieving categories for user_id: {self.user_id}")
         return self.categories
+
+    def _get_category_from_cache(self, category_id: int) -> Optional[UserCategory]:
+        logger.debug(f"Retrieving category for user_id: {self.user_id}")
+        for category in self.categories.values():
+            if category.id == category_id:
+                return category
+        return None
 
     def get_library_entry_type(self, entry: UserLibrary) -> Optional[MediaType]:
         logger.debug(f"Determining media type for library entry ID: {entry.id}")
@@ -177,6 +184,46 @@ class AsyncLibraryRepository:
                 await session.rollback()
                 logger.error(f"Error creating category '{name}' for user {user_id}: {e}", exc_info=True)
                 return None
+
+    async def get_category_from_id(self, category_id: int) -> Optional[UserCategory]:
+        """Get a category by its ID, optionally from cache."""
+        async with self.session_maker() as session:
+            async with session.begin():
+                category = self._get_category_from_cache(category_id)
+                if category is not None:
+                    return category
+
+                stmt = select(UserCategory).where(UserCategory.id == category_id)
+                result = await session.execute(stmt)
+                category = result.scalar_one_or_none()
+
+                if category is None:
+                    logger.warning(f"Category with ID {category_id} not found.")
+                    return None
+
+                return category
+
+    async def get_category_from_name(self, category_name: str, user_id: int) -> Optional[UserCategory]:
+        """Get a category by its name and user ID, optionally from in-memory cache."""
+        async with self.session_maker() as session:
+            async with session.begin():
+                category = self.categories.get(category_name)
+                if category is not None:
+                    return category
+
+                stmt = select(UserCategory).where(
+                    and_(UserCategory.name == category_name, UserCategory.user_id == user_id)
+                )
+                result = await session.execute(stmt)
+                category = result.scalar_one_or_none()
+
+                if category is None:
+                    logger.warning(f"Category with name '{category_name}' not found for user ID {user_id}.")
+                    return None
+
+                return category
+
+
 
     async def get_library_entry(self, library_id: int) -> Optional[UserLibrary]:
         """Retrieve a specific library entry by its ID, including related categories."""
