@@ -576,6 +576,7 @@ class AsyncLibraryRepository:
             self,
             media_type: MediaType,
             user_id: int,
+            category_id: Optional[int] = None,
             query: Optional[str] = None,
             min_score: Optional[int] = None,
             max_score: Optional[int] = None,
@@ -596,8 +597,11 @@ class AsyncLibraryRepository:
             offset: int = 0
     ) -> Union[List[Anime], List[Manga]]:
         logger.info(f"Filtering {media_type.name} results for user {user_id}'s library.")
-
-        library_entries = await self.get_user_library_entries(user_id, media_type)
+        library_entries = []
+        if category_id:
+            library_entries = await self.get_library_entries_by_category(user_id, category_id, media_type)
+        else:
+            library_entries = await self.get_user_library_entries(user_id, media_type)
         media_ids = list(filter(None, map(self.get_library_entry_id, library_entries)))
 
         if not media_ids:

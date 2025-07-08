@@ -1,3 +1,4 @@
+import time
 from collections import deque
 from pathlib import Path
 from typing import List, Any, Tuple, Union, Callable, Optional, Dict, Type, Deque
@@ -11,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QWidget, QButtonGroup, QVBoxLayout, 
     QStackedWidget, QSpacerItem, QSizePolicy, QLayout
 
 from AnillistPython import AnilistMedia, parse_searched_media
+from database import Manga, Anime
 from gui.common import KineticScrollArea, ResponsiveLayout, EnumComboBox, AnimationManager, AnimationDirection, \
     DynamicGridLayout, SlideAniStackedWidget, AniStackedWidget, MyLabel, RoundedToolButton
 from gui.components import MediaCardSkeletonLandscape, MediaCardSkeletonMinimal, MediaCardSkeletonDetailed, \
@@ -120,10 +122,11 @@ class BaseMediaContainer(QWidget):
 
 
 
-    def add_medias(self, data: List[AnilistMedia]):
+    def add_medias(self, data: List[Union[AnilistMedia, Anime, Manga]]):
         """Starts chunked creation and insertion of media cards."""
-        logger.debug(f"Received {len(data)} media items for lazy loading")
+
         self._data_queue.append(data)
+        logger.warning(f"Received {len(data)} media items for lazy loading, {len(self._data_queue)} items left.")
         self._start_next_chunk()
 
     def add_cards(self, cards: List[MediaCard]):
@@ -140,6 +143,7 @@ class BaseMediaContainer(QWidget):
             return
         if self._is_chunk_loading:
             logger.debug(f"Task already running, adding it in queue:")
+            return
 
         next_data = self._data_queue.popleft()
         self._is_chunk_loading = True
@@ -149,7 +153,7 @@ class BaseMediaContainer(QWidget):
         self._is_chunk_loading = False
         self._start_next_chunk()
 
-    def _start_chunk_loading(self, data: Union[List[MediaCard], List[AnilistMedia]]):
+    def _start_chunk_loading(self, data: Union[List[MediaCard], List[Union[AnilistMedia, Anime, Manga]]]):
         self._cancel_loading_flag = False
         self._chunk_index = 0
         self._chunk_data = data
@@ -158,6 +162,7 @@ class BaseMediaContainer(QWidget):
             if self._cancel_loading_flag:
                 logger.debug("Chunk loading cancelled")
                 self.cardLoadingCanceled.emit()
+                self._is_chunk_loading = False
                 return
 
             self.setUpdatesEnabled(False)
@@ -171,22 +176,27 @@ class BaseMediaContainer(QWidget):
             for media in chunk:
                 if self._cancel_loading_flag:
                     logger.debug("Chunk loading cancelled during card processing")
+                    self._is_chunk_loading = False
                     self.cardLoadingCanceled.emit()
                     self._finalize_chunk_loading()
                     return
-                if isinstance(media, AnilistMedia):
+                if isinstance(media, (AnilistMedia, Anime, Manga)):
                     card = self._create_card(media)
                 else:
                     card = media
                 card.set_variant(self.Variant)
+
                 self.insertWidget(len(self.cards), card)
+                card.setVisible(True)
 
             self._chunk_index = end_index
             if self._chunk_index < len(self._chunk_data) and not self._cancel_loading_flag:
                 self._finalize_chunk_loading()
                 self._chunk_timer.start()
+                self._is_chunk_loading = False
             else:
                 self.chunk_loaded.emit()
+                self._is_chunk_loading = False
                 logger.debug(f"All chunks processed or loading cancelled: {len(self._data_queue)}")
                 self._start_next_chunk()
             self._finalize_chunk_loading()
@@ -216,12 +226,21 @@ class BaseMediaContainer(QWidget):
             self._is_chunk_loading = False
 
 
-    def _create_card(self, media: AnilistMedia) -> MediaCard:
-        logger.trace(f"Creating media card for: {media.title.romaji}")
+    def _create_card(self, media: Union[AnilistMedia, Anime, Manga]) -> MediaCard:
+        logger.trace(f"Creating media card for: {media.id}")
         card = MediaCard(self.Variant)
         card.cardClicked.connect(self.cardClicked.emit)
         card.setData(media)
-        self.add_download(media.coverImage.large, card)
+        if isinstance(media, AnilistMedia):
+            image = media.coverImage
+            if image:
+                image_url = image.large or image.medium or image.extraLarge
+                if image_url:
+                    self.add_download(image_url, card)
+        elif isinstance(media, (Anime, Manga)):
+            image_url = media.cover_image_large or media.cover_image_medium or media.cover_image_extra_large
+            if image_url:
+                self.add_download(image_url, card)
         return card
 
     def addWidget(self, card: Union[MediaCard, QWidget]):
@@ -242,10 +261,11 @@ class BaseMediaContainer(QWidget):
     def setSpacing(self, spacing: int):
         self.container_layout.setSpacing(spacing)
 
-    def remove_medias(self, is_delete: bool = False) -> List[MediaCard]:
+    def remove_medias(self, is_delete: bool = False, set_hidden: bool = False) -> List[MediaCard]:
         """Remove all media cards from the layout.
 
         :param is_delete: If True, deletes the media cards.
+        :param set_hidden: If True, hides the media cards.
         :return: List of removed MediaCard instances.
         """
         self.clear_queue()
@@ -253,6 +273,7 @@ class BaseMediaContainer(QWidget):
         removed_cards = []
         while len(self.cards):
             card = self.cards.pop()
+            card.setHidden(set_hidden)
             self.removeWidget(card, is_delete)
             removed_cards.append(card)
 
@@ -296,6 +317,9 @@ class BaseMediaContainer(QWidget):
     #     self._cancel_loading_flag = True
     #     if hasattr(self, "_chunk_timer") and self._chunk_timer:
     #         self._chunk_timer.stop()
+
+    def getCards(self):
+        return self.cards
 
 
 class LandscapeContainer(BaseMediaContainer):
@@ -693,7 +717,7 @@ class CardContainer(QWidget):
         self.portrait_container = PortraitContainer(skeletons = 12, parent=self)
         self.portrait_container.setSpacing(spacing)
         self.landscape_container = LandscapeContainer(skeletons=10, parent=self)
-        self.landscape_container.setSpacing(spacing)
+        self.landscape_container.setSpacing(spacing//2)
         self.wide_landscape_container = WideLandscapeContainer(skeletons=4, parent=self)
         self.wide_landscape_container.setSpacing(spacing)
 
@@ -755,11 +779,13 @@ class CardContainer(QWidget):
         self.wide_landscape_container.cardClicked.connect(self.cardClicked.emit)
 
     def show_loading(self):
+        self.is_skeleton = True
         self.portrait_container.show_all_skeletons()
         self.landscape_container.show_all_skeletons()
         self.wide_landscape_container.show_all_skeletons()
 
     def hide_loading(self):
+        self.is_skeleton = False
         self.portrait_container.hide_all_skeletons(False, False)
         self.landscape_container.hide_all_skeletons(False, False)
         self.wide_landscape_container.hide_all_skeletons(False, False)
@@ -790,12 +816,12 @@ class CardContainer(QWidget):
         view = self.get_variant_view(variant)
         self.view_stack.setCurrentWidget(view)
         if len(self._media_data):
-            QTimer.singleShot(400, lambda: self.switch_cards(self.previous_variant, variant))
+            QTimer.singleShot(100, lambda: self.switch_cards(self.previous_variant, variant))
 
         self.previous_variant = self.variant
         self.variant = variant #updating variant flag
 
-    def add_medias(self, data: List[AnilistMedia], is_increment=True):
+    def add_medias(self, data: List[Union[AnilistMedia, Anime, Manga]], is_increment=True):
         logger.info(f"Adding {'more' if is_increment else 'new'} media items: {len(data)}")
         if is_increment:
             self._media_data.extend(data)
@@ -807,9 +833,16 @@ class CardContainer(QWidget):
         self._load_next_batch()
         # QTimer.singleShot(50, self._check_scroll_and_continue)
 
-    def remove_cards(self, delete: bool):
-        current_container = self.get_variant_container(self.variant)
-        current_container.remove_medias(delete)
+    def add_media(self, data: Union[AnilistMedia, Anime, Manga]):
+        if self._media_index == len(self._media_data):
+            self._media_data.append(data)
+            self._load_next_batch()
+        else:
+            self._media_data.append(data)
+
+    def remove_cards(self, variant: MediaVariants, delete: bool = False, set_hidden: bool = True)->List[MediaCard]:
+        current_container = self.get_variant_container(variant)
+        return current_container.remove_medias(delete, set_hidden)
 
     def _load_next_batch(self):
         batch_size = self.get_batch_size()
@@ -826,11 +859,16 @@ class CardContainer(QWidget):
         if self._media_index >= len(self._media_data):
             self.endReached.emit()
 
+
     def switch_cards(self, previous_variant: MediaVariants, next_variant: MediaVariants):
         if previous_variant == next_variant:
             logger.debug(f"Previous variant and next variant are equal: {previous_variant.name}")
             return
+        is_skeleton = self.is_skeleton
+        timer_ms = 0
         try:
+
+            self.show_loading()
             self.switching.emit()
             # self.filter_navigation.setEnabled(False)
             previous_container = self.get_variant_container(previous_variant)
@@ -843,17 +881,26 @@ class CardContainer(QWidget):
             batch_size = self.get_batch_size()
             logger.debug(f"Adding cards: {len(cards)}")
             if len(cards) == 0:
-                return
+                timer_ms = 0
+
             elif len(cards) < batch_size:
                 next_container.add_cards(cards)
                 medias = self._media_data[len(cards):batch_size]
                 QTimer.singleShot(10, lambda: next_container.add_medias(medias))
                 # next_container.add_medias
+                timer_ms = len(cards) + len(medias)
+
+
             elif len(cards) >= batch_size:
                 next_container.add_cards(cards)
+                timer_ms = len(cards)
 
         except Exception as e:
             logger.error(e)
+
+        finally:
+            if not is_skeleton:
+                QTimer.singleShot(timer_ms*100, self.hide_loading)
 
 
 
@@ -868,6 +915,13 @@ class CardContainer(QWidget):
     def get_variant_container(self, variant: MediaVariants)->BaseMediaContainer:
         return self.variant_map[variant][1]
 
+    def get_current_variant(self)->MediaVariants:
+        return self.variant
+
+    def getCards(self)->List[MediaCard]:
+        view = self.get_variant_container(self.variant)
+        return view.getCards()
+
 
 
 def main():
@@ -878,12 +932,11 @@ def main():
 
     # cards.extend(cards)
     # cards.extend(cards)
-    print(len(cards))
 
     app = QApplication(sys.argv)
 
-    event_loop = QEventLoop(app)
-    asyncio.set_event_loop(event_loop)
+    # event_loop = QEventLoop(app)
+    # asyncio.set_event_loop(event_loop)
 
     app_close_event = asyncio.Event()
     app.aboutToQuit.connect(app_close_event.set)
@@ -892,16 +945,20 @@ def main():
     # main_window = LandscapeContainer()
     # main_window = PortraitContainer()
     # main_window = WideLandscapeContainer()
-    main_window = CardContainer()
+    main_window = CardContainer(batch_size=15)
     main_window.hide_loading()
-    main_window.show()
-    main_window.endReached.connect(lambda: QTimer.singleShot(2000, lambda: main_window.add_medias(cards)))
+    main_window.showMaximized()
+    # main_window.endReached.connect(lambda: QTimer.singleShot(2000, lambda: main_window.add_medias(cards.medias)))
     # main_window._batch_size = 80
+    # for x in range(0, len(cards.medias), 5):
+    #     main_window.add_medias(cards.medias[x:x+5])
+        # time.sleep(1)
+    for card in cards.medias:
+        main_window.add_media(card)
 
-    QTimer.singleShot(2000, lambda: main_window.add_medias(cards))
-
-    with event_loop:
-        event_loop.run_until_complete(app_close_event.wait())
+    # with event_loop:
+    #     event_loop.run_until_complete(app_close_event.wait())
+    app.exec()
 
 
 if __name__ == '__main__':

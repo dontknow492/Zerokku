@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout, QFrame, QS
 from loguru import logger
 from qfluentwidgets import SubtitleLabel, BodyLabel, FlowLayout, ScrollArea, TransparentToolButton, \
     setTheme, Theme, CardWidget, setCustomStyleSheet, SimpleCardWidget, ElevatedCardWidget, ThemeColor
+from sqlalchemy.orm.exc import DetachedInstanceError
 
 from gui.common import (WaitingLabel, OutlinedChip, MyLabel, SkimmerWidget, SkeletonMode, KineticScrollArea,
                         MultiLineElideLabel)
@@ -423,21 +424,28 @@ class MediaCard(CardWidget):
         self.setMediaEpisodeChapters(count, count_label)
 
         # Set genres
-
-        genres = data.genres
-        if genres:
-            dominant_color = data.cover_image_color
-            if dominant_color:
-                dominant_color = QColor(dominant_color)
-                # logger.critical(f"Media has  dominant color: {dominant_color}")
-            else:
-                dominant_color = ThemeColor.PRIMARY.color()
-            self.setGenre(data.genres or [], dominant_color)
+        try:
+            genres = data.genres or None
+            if genres:
+                dominant_color = data.cover_image_color
+                if dominant_color:
+                    dominant_color = QColor(dominant_color)
+                    # logger.critical(f"Media has  dominant color: {dominant_color}")
+                else:
+                    dominant_color = ThemeColor.PRIMARY.color()
+                self.setGenre(data.genres or [], dominant_color)
+        except DetachedInstanceError:
+            pass
+        except:
+            raise
 
 
 
     def setMediaId(self, media_id: int):
         self._media_id = media_id
+
+    def getMediaId(self) -> int:
+        return self._media_id
 
     def setMyAniListId(self, mal_media_id: int):
         self._mal_id = mal_media_id

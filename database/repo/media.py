@@ -10,7 +10,7 @@ from sqlalchemy import select, and_, or_, func, between, not_, asc, desc
 from sqlalchemy.sql import func
 from sqlalchemy.exc import SQLAlchemyError, DatabaseError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, selectinload
 
 from database import get_enum_index
 from database.models import Anime, Manga, Genre, Tag, Studio
@@ -37,8 +37,8 @@ class SortBy(str, Enum):
     VOLUMES = "volumes"  # Manga only
 
 class SortOrder(str, Enum):
-    ASC = "asc"
-    DESC = "desc"
+    ASC = "ascending"
+    DESC = "descending"
 
 class GroupByField(str, Enum):
     STATUS = "status_id"
@@ -135,7 +135,6 @@ class AsyncMediaRepository:
             raise
 
 
-
     ### Create
     async def create(self, media: Union[Anime, Manga]) -> Union[Anime, Manga]:
         """Create a new media entry"""
@@ -201,8 +200,6 @@ class AsyncMediaRepository:
                 except SQLAlchemyError as e:
                     logger.error(f"Error creating/updating media: {e}")
                     raise
-
-
 
     ### Get
     async def get_by_id(self, media_id: int, media_type: MediaType) -> Optional[Union[Anime, Manga]]:
@@ -596,14 +593,15 @@ class AsyncMediaRepository:
 
         async with self.session_maker() as session:
             try:
-                count_query = select(func.count()).select_from(query.subquery())
-                count_result = await session.execute(count_query)
-                total_count = count_result.scalar()
+                # count_query = select(func.count()).select_from(query.subquery())
+                # count_result = await session.execute(count_query)
+                # total_count = count_result.scalar()
+                query = query.options(selectinload(model.genres))
 
                 result = await session.execute(query)
                 media_items = result.scalars().unique().all()
                 logger.success(
-                    f"Retrieved {len(media_items)} of {total_count} {media_type.value}(s) with advanced filters.")
+                    f"Retrieved {len(media_items)} - {media_type.value}(s) with advanced filters.")
                 return media_items
             except ProgrammingError as e:
                 logger.error(f"Invalid query error: {e}", exc_info=True)

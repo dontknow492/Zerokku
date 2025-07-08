@@ -45,6 +45,12 @@ class EnumComboBox(ComboBox):
             self.addItem(value)
             # print(value, item)
 
+    def setCurrentEnum(self, enum: Type[Enum]):
+        for key, value in self.enum_map.items():
+            if value == enum:
+                self.setCurrentText(key)
+                break
+
     def getCurrentEnum(self) -> Optional[Type[Enum]]:
         """Return the selected Enum value, or None if default/placeholder is selected."""
         text = self.currentText()
