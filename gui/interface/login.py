@@ -5,9 +5,11 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QWidget, QApplication, QGroupBox, QHBoxLayout, QVBoxLayout, QLabel, QSizePolicy, \
     QMessageBox
 from qfluentwidgets import PasswordLineEdit, LineEdit, CheckBox, TransparentPushButton, PrimaryPushButton, ImageLabel, \
-    PopUpAniStackedWidget, MessageBox, setCustomStyleSheet, isDarkTheme, Theme, setTheme
+    PopUpAniStackedWidget, MessageBox, setCustomStyleSheet, isDarkTheme, Theme, setTheme, FluentTitleBar
+from qframelesswindow import FramelessWindow
 from sqlalchemy.orm import sessionmaker
 
+from database import User
 from gui.common import MyLabel, AniStackedWidget
 
 import re
@@ -187,12 +189,6 @@ class RegisterPage(QWidget):
         self.confirm_password_line_edit = PasswordLineEdit()
         self.confirm_password_line_edit.setPlaceholderText("Re-enter your password")
 
-
-        self.remember_me_checkbox = CheckBox("Remember me", parent=self)
-        self.remember_me_checkbox.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.forget_password_button = TransparentPushButton("Forget password?", parent=self)
-        self.forget_password_button.setCursor(Qt.CursorShape.PointingHandCursor)
-
         self.signup_button = PrimaryPushButton("Sign up", parent=self)
         self.signup_button.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -214,9 +210,6 @@ class RegisterPage(QWidget):
         v_layout.setSpacing(0)
         # v_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v_layout.addStretch()
-        h_sublayout = QHBoxLayout(self)
-        h_sublayout.addWidget(self.remember_me_checkbox)
-        h_sublayout.addWidget(self.forget_password_button)
 
         h2_sublayout = QHBoxLayout(self)
         text_label = MyLabel(self.signin_text)
@@ -244,7 +237,6 @@ class RegisterPage(QWidget):
         v_layout.addWidget(self.confirm_password_heading_label)
         v_layout.addSpacing(10)
         v_layout.addWidget(self.confirm_password_line_edit)
-        v_layout.addLayout(h_sublayout)
         v_layout.addSpacing(20)
         v_layout.addWidget(self.signup_button)
         v_layout.addSpacing(10)
@@ -342,11 +334,6 @@ class ForgotPasswordPage(QWidget):
         self.confirm_password_line_edit = PasswordLineEdit()
         self.confirm_password_line_edit.setPlaceholderText("Re-enter your password")
 
-        self.remember_me_checkbox = CheckBox("Remember me", parent=self)
-        self.remember_me_checkbox.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.forget_password_button = TransparentPushButton("Forget password?", parent=self)
-        self.forget_password_button.setCursor(Qt.CursorShape.PointingHandCursor)
-
         self.update_password = PrimaryPushButton("Update Password", parent=self)
         self.update_password.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -368,9 +355,6 @@ class ForgotPasswordPage(QWidget):
         v_layout.setSpacing(0)
         # v_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v_layout.addStretch()
-        h_sublayout = QHBoxLayout(self)
-        h_sublayout.addWidget(self.remember_me_checkbox)
-        h_sublayout.addWidget(self.forget_password_button)
 
         h2_sublayout = QHBoxLayout(self)
         text_label = MyLabel(self.signup_text)
@@ -398,8 +382,7 @@ class ForgotPasswordPage(QWidget):
         v_layout.addWidget(self.confirm_password_heading_label)
         v_layout.addSpacing(10)
         v_layout.addWidget(self.confirm_password_line_edit)
-        v_layout.addLayout(h_sublayout)
-        v_layout.addSpacing(20)
+        v_layout.addSpacing(30)
         v_layout.addWidget(self.update_password)
         v_layout.addSpacing(10)
         v_layout.addLayout(h2_sublayout)
@@ -462,9 +445,10 @@ class ForgotPasswordPage(QWidget):
 
 
 class LoginInterface(PopUpAniStackedWidget):
+    loginSignal = Signal(User)
     def __init__(self, login_image_path: str, register_image_path: str, forget_image_path: str,
-                 session_maker: sessionmaker = None):
-        super().__init__(session_maker)
+                 session_maker: sessionmaker = None, parent = None) -> None:
+        super().__init__(parent)
 
         self.login_page = LoginPage(login_image_path, self)
         self.register_page = RegisterPage(register_image_path, self)
@@ -514,6 +498,65 @@ class LoginInterface(PopUpAniStackedWidget):
         message_box.exec()
 
 
+class LoginWindow(FramelessWindow):
+    def __init__(self, login_image_path: str, register_image_path: str, forget_image_path: str,
+                 session_maker: sessionmaker = None, parent=None) -> None:
+        super().__init__(parent)
+        self.setTitleBar(FluentTitleBar(self))
+        self.setWindowTitle("Zerokku Login")
+
+        vlayout = QVBoxLayout(self)
+        vlayout.setContentsMargins(0, 0, 0, 0)
+        self.stackedWidget = PopUpAniStackedWidget(self)
+        self.stackedWidget.lower()
+        vlayout.addWidget(self.stackedWidget)
+
+        self.login_page = LoginPage(login_image_path, self)
+        self.register_page = RegisterPage(register_image_path, self)
+        self.forget_password_page = ForgotPasswordPage(forget_image_path, self)
+
+        self.stackedWidget.addWidget(self.login_page)
+        self.stackedWidget.addWidget(self.register_page)
+        self.stackedWidget.addWidget(self.forget_password_page)
+
+        self._signal_handler()
+        # QColor(242, 242, 242), QColor("#1b1919")
+        self.setStyleSheet(
+            "background-color:rgb(242, 242, 242);" if not isDarkTheme() else "background-color: #1b1919;")
+
+    def _signal_handler(self):
+        self.forget_password_page.updatePasswordSignal.connect(self.update_password)
+        self.forget_password_page.signUpSignal.connect(lambda: self.switchTo(1))
+
+        self.register_page.signInSignal.connect(lambda: self.switchTo(0))
+
+        self.login_page.signUpSignal.connect(lambda: self.switchTo(1))
+        self.login_page.forgetPasswordSignal.connect(lambda: self.switchTo(2))
+
+        # error
+        self.forget_password_page.errorSignal.connect(self.showMessage)
+        self.login_page.errorSignal.connect(self.showMessage)
+        self.register_page.errorSignal.connect(self.showMessage)
+
+    def update_password(self):
+        pass
+
+    def create_account(self):
+        pass
+
+    def login_to_account(self):
+        pass
+
+    def switchTo(self, index: int):
+        self.login_page.clear()
+        self.register_page.clear()
+        self.forget_password_page.clear()
+        self.stackedWidget.setCurrentIndex(index)
+
+    def showMessage(self, title: str, content: str):
+        message_box = MessageBox(title, content, self)
+        message_box.exec()
+
 
 if __name__ == '__main__':
     setTheme(Theme.DARK)
@@ -521,6 +564,6 @@ if __name__ == '__main__':
     login = r"D:\Program\Zerokku\assets\login.png"
     register = r"D:\Program\Zerokku\assets\register.png"
     forget = r"D:\Program\Zerokku\assets\forget.png"
-    login_page = LoginInterface(login, register, forget)
+    login_page = LoginWindow(login, register, forget)
     login_page.showMaximized()
     app.exec()
