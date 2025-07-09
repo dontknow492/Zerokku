@@ -293,7 +293,7 @@ class ExtraFilter(FlyoutViewBase):
 class LibraryInterface(QWidget):
     TITLE_FONT_SIZE = 20
     TITLE_FONT_WEIGHT = QFont.Weight.DemiBold
-    def __init__(self, async_library_repo: AsyncLibraryRepository, user_id: int, parent=None):
+    def __init__(self, async_library_repo: AsyncLibraryRepository, user_id: Optional[int] = None, parent=None):
         super().__init__(parent)
 
         self.user_id = user_id
@@ -365,7 +365,8 @@ class LibraryInterface(QWidget):
         self._signal_handler()
 
         # asyncio.ensure_future(self._post_init())
-        QTimer.singleShot(200, self._post_init)
+        if user_id is not None:
+            QTimer.singleShot(200, self._post_init)
 
     @asyncSlot()
     async def _post_init(self):
@@ -381,6 +382,12 @@ class LibraryInterface(QWidget):
 
         await self.update_count()
         await self.update_filter()
+
+    def setUser(self, user_id):
+        if user_id == self.user_id:
+            return
+        self.user_id = user_id
+        QTimer.singleShot(200, self._post_init)
 
         # animes = await  self.async_library_repo.get_by_advanced_filters(MediaType.ANIME, self.user_id, limit = -1)
         #

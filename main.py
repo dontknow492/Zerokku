@@ -1,36 +1,54 @@
 import asyncio
 from typing import Optional, Union
 
-from PySide6.QtCore import QRect, QTimer
+from PySide6 import QtGui
+from PySide6.QtCore import QRect, QTimer, QSize, Qt
 from PySide6.QtGui import QIcon, QColor
 from loguru import logger
 from qfluentwidgets import FluentWindow, FluentIcon, setTheme, Theme, ScrollArea, FluentStyleSheet, qconfig, \
-    MSFluentWindow, NavigationItemPosition, NavigationAvatarWidget, setThemeColor
+    MSFluentWindow, NavigationItemPosition, NavigationAvatarWidget, setThemeColor, SplashScreen
 from PySide6.QtWidgets import QApplication, QWidget, QFrame, QScrollArea, QVBoxLayout, QHBoxLayout
 import sys
 from qasync import QEventLoop, asyncSlot
-from qfluentwidgets.window.stacked_widget import StackedWidget
 
 from AnillistPython import MediaType, MediaQueryBuilderBase, SearchQueryBuilder, MediaSeason, MediaSort, \
     MediaQueryBuilder, AnilistMedia
-from database import Anime, Manga
+from database import Anime, Manga, AsyncMediaRepository, AsyncLibraryRepository
 from gui.common import KineticScrollArea
-from gui.interface import HomeInterface, SearchInterface, LibraryInterface, DownloadInterface, MediaPage
+from gui.interface import HomeInterface, SearchInterface, LibraryInterface, DownloadInterface, MediaPage, LoginInterface
 
 from core import AnilistHelper
 from utils import get_current_season_and_year
 
+from sqlalchemy.orm import sessionmaker
+
 class MainWindow(MSFluentWindow):
+    DATABASE_URL = ""
     def __init__(self):
         super().__init__()
-        self.cache_dir = r"./.cache"
-        self.anilist_helper = AnilistHelper(cache_dir=self.cache_dir)
-
-        self.tags_path = "assets//tags.json"
-        self._screen_geometry = QApplication.primaryScreen().availableGeometry()
 
         self.setWindowTitle('Zerokku')
         self.setWindowIcon(QIcon('app.ico'))
+
+        self._screen_geometry = QApplication.primaryScreen().availableGeometry()
+
+        self.splashScreen = SplashScreen("splash.png", self)
+        self.splashScreen.setIconSize(QSize(self._screen_geometry.height() - 100 , self._screen_geometry.height() - 100))
+        # self.splashScreen.setWindowIconText(self.windowIconText())
+        self.splashScreen.showFullScreen()
+
+
+        self.cache_dir = r"./.cache"
+
+        # self.session_maker = sessionmaker()
+        #
+        # self.db_media_helper = AsyncMediaRepository(self.session_maker)
+        # self.db_library_helper = AsyncLibraryRepository(self.session_maker, self.db_media_helper, )
+        self.anilist_helper = AnilistHelper(cache_dir=self.cache_dir)
+
+        self.tags_path = "assets//tags.json"
+
+
 
         # self.navigationInterface.displayModeChanged.disconnect()
 
@@ -46,8 +64,8 @@ class MainWindow(MSFluentWindow):
         self.search_interface = SearchInterface(self.tags_path)
         self.search_interface.setObjectName("Search Interface")
 
-        self.library_interface = LibraryInterface(self)
-        self.library_interface.setObjectName("Library Interface")
+        # self.library_interface = LibraryInterface(self)
+        # self.library_interface.setObjectName("Library Interface")
 
         self.download_interface = DownloadInterface(self)
         self.download_interface.setObjectName("Download Interface")
@@ -65,11 +83,12 @@ class MainWindow(MSFluentWindow):
         asyncio.ensure_future(self._post_init())
 
 
+
     def _init_interface(self):
         self.addSubInterface(self.anime_home_interface, FluentIcon.MOVIE, "Anime", isTransparent=False)
         self.addSubInterface(self.manga_home_interface, FluentIcon.ALBUM, "Manga", isTransparent=False)
         self.addSubInterface(self.search_interface, FluentIcon.SEARCH, "Search", isTransparent=False)
-        self.addSubInterface(self.library_interface, FluentIcon.LIBRARY, "Library", isTransparent=False)
+        # self.addSubInterface(self.library_interface, FluentIcon.LIBRARY, "Library", isTransparent=False)
 
         #bottom
         self.addSubInterface(self.download_interface, FluentIcon.DOWNLOAD, "Download",
@@ -96,6 +115,8 @@ class MainWindow(MSFluentWindow):
         await self.anime_home_interface.connect_image_downloader()
         await self.manga_home_interface.connect_image_downloader()
         await self.search_interface.init_image_downloader()
+
+        QTimer.singleShot(10, self.splashScreen.finish)
 
 
     def _signal_handler(self):
@@ -215,6 +236,12 @@ class MainWindow(MSFluentWindow):
         data = await self.anilist_helper.search(media_type, fields, filters, query, page, per_page)
         self.search_interface.add_medias(data)
 
+    def resizeEvent(self, event: QtGui.QResizeEvent):
+        if self.splashScreen.isVisible():
+            self.splashScreen.setFixedSize(self.size())
+        # logger.debug(f"resizeEvent- {self.splashScreen.isVisible()}")
+        super().resizeEvent(event)
+
 
 
 if __name__ == '__main__':
@@ -229,9 +256,16 @@ if __name__ == '__main__':
     app.aboutToQuit.connect(app_close_event.set)
 
     main_window = MainWindow()
+
+    # splash_screen = SplashScreen("app.ico", main_window)
+    # splash_screen.setWindowFlag(Qt.FramelessWindowHint)
+    # splash_screen.show()
+    # splash_screen.setIconSize(QSize(102, 102))
+
+
     main_window.setMicaEffectEnabled(False)
     main_window.setCustomBackgroundColor(QColor(242, 242, 242), QColor("#1b1919"))
-    main_window.show()
+    main_window.showMaximized()
 
     with event_loop:
         event_loop.run_until_complete(app_close_event.wait())
