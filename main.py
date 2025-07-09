@@ -1,5 +1,7 @@
 import asyncio
+import json
 import os
+import secrets
 from datetime import timedelta
 from typing import Optional, Union
 
@@ -16,7 +18,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 
 from AnillistPython import MediaType, MediaQueryBuilderBase, SearchQueryBuilder, MediaSeason, MediaSort, \
     MediaQueryBuilder, AnilistMedia
-from database import Anime, Manga, AsyncMediaRepository, AsyncLibraryRepository, init_db
+from database import Anime, Manga, AsyncMediaRepository, AsyncLibraryRepository, init_db, drop_all_tables, User
 from gui.interface import HomeInterface, SearchInterface, LibraryInterface, DownloadInterface, MediaPage, LoginWindow
 
 from core import AnilistHelper
@@ -26,11 +28,13 @@ from sqlalchemy.orm import sessionmaker
 
 class MainWindow(MSFluentWindow):
     DATABASE_URL = ""
-    def __init__(self):
+    def __init__(self, user: User):
         super().__init__()
 
         self.setWindowTitle('Zerokku')
         self.setWindowIcon(QIcon('app.ico'))
+
+        self.user: User = user
 
         self._screen_geometry = QApplication.primaryScreen().availableGeometry()
 
@@ -263,14 +267,33 @@ os.makedirs("./data", exist_ok=True)
 
 DATABASE_URL =  os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/zerokku.db")
 
+def save_token(user_id: int, token: str):
+    # token = secrets.token_hex(16)
+    # Save to file
+    with open("data/credentials.json", "w") as f:
+        json.dump({"user_id": user_id, "token": token}, f)
+
+
+
+def load_token():
+    try:
+        with open("data/credentials.json", "r") as f:
+            data = json.load(f)
+            return data["user_id"], data["token"]
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None, None
+
 async def main():
     try:
+        # save_token(1, "96ff9c4c87e937d4d2507992d27b1a3a")
+        # return
         logger.info("App started")
         setTheme(Theme.DARK)
         setThemeColor(QColor("#db2d69"))
 
         logger.info(f"Connecting to Database: {DATABASE_URL}")
         engine = create_async_engine(DATABASE_URL, echo=False)
+        # await drop_all_tables(engine)
         await init_db(engine)
         session_maker = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autocommit=False,
                                      autoflush=False)
@@ -289,7 +312,7 @@ async def main():
         login = r".\assets\login.png"
         register = r".\assets\register.png"
         forget = r".\assets\forget.png"
-        login_window = LoginWindow(login, register, forget)
+        login_window = LoginWindow(login, register, forget, session_maker)
 
         login_window.showMaximized()
 

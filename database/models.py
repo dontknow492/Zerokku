@@ -85,8 +85,10 @@ class User(Base):
     __tablename__ = 'user'
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String, unique=True)
+    email: Mapped[str] = mapped_column(String, nullable=True)
     password_hash: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    token: Mapped[str] = mapped_column(String, nullable=True)
 
     categories: Mapped[List["UserCategory"]] = relationship("UserCategory", back_populates="user")
     profile: Mapped[Optional["UserProfile"]] = relationship("UserProfile", back_populates="user")
@@ -662,6 +664,10 @@ async def populate_reference_tables(session: AsyncSession, **kwargs: List[T]) ->
 async def init_db(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+async def drop_all_tables(engine: AsyncEngine) -> None:
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
 
 
 def sync_init_db(engine: Engine) -> None:
