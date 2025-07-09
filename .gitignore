@@ -108,4 +108,6 @@ py2exe_build.json
 !/libmpv-2.7z
 /core/anilist_joblib_cache/
 *.pkl
+/data
+/logs
 scrapper/

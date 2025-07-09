@@ -1,4 +1,6 @@
 import asyncio
+import os
+from datetime import timedelta
 from typing import Optional, Union
 
 from PySide6 import QtGui
@@ -10,12 +12,12 @@ from qfluentwidgets import FluentWindow, FluentIcon, setTheme, Theme, ScrollArea
 from PySide6.QtWidgets import QApplication, QWidget, QFrame, QScrollArea, QVBoxLayout, QHBoxLayout
 import sys
 from qasync import QEventLoop, asyncSlot
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 
 from AnillistPython import MediaType, MediaQueryBuilderBase, SearchQueryBuilder, MediaSeason, MediaSort, \
     MediaQueryBuilder, AnilistMedia
-from database import Anime, Manga, AsyncMediaRepository, AsyncLibraryRepository
-from gui.common import KineticScrollArea
-from gui.interface import HomeInterface, SearchInterface, LibraryInterface, DownloadInterface, MediaPage, LoginInterface
+from database import Anime, Manga, AsyncMediaRepository, AsyncLibraryRepository, init_db
+from gui.interface import HomeInterface, SearchInterface, LibraryInterface, DownloadInterface, MediaPage, LoginWindow
 
 from core import AnilistHelper
 from utils import get_current_season_and_year
@@ -244,31 +246,65 @@ class MainWindow(MSFluentWindow):
 
 
 
+logger.add(
+    "logs/app.log",            # Log file path
+    rotation= "1 MB",           # Rotate after 1 MB
+    encoding="utf-8",
+    retention=timedelta(days=7),# Keep logs for 7 days
+    level="DEBUG",             # Minimum level to log
+    enqueue=True,              # Thread-safe logging
+    backtrace=True,            # Show full trace on exceptions
+    diagnose=True              # Show variable values in trace
+)
+
+logger.info("Logging Initialized")
+
+os.makedirs("./data", exist_ok=True)
+
+DATABASE_URL =  os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/zerokku.db")
+
+async def main():
+    try:
+        logger.info("App started")
+        setTheme(Theme.DARK)
+        setThemeColor(QColor("#db2d69"))
+
+        logger.info(f"Connecting to Database: {DATABASE_URL}")
+        engine = create_async_engine(DATABASE_URL, echo=False)
+        await init_db(engine)
+        session_maker = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autocommit=False,
+                                     autoflush=False)
+
+
+        logger.info(f"Initializing QApplication")
+
+        app = QApplication(sys.argv)
+
+        event_loop = QEventLoop(app)
+        asyncio.set_event_loop(event_loop)
+
+        app_close_event = asyncio.Event()
+        app.aboutToQuit.connect(app_close_event.set)
+
+        login = r".\assets\login.png"
+        register = r".\assets\register.png"
+        forget = r".\assets\forget.png"
+        login_window = LoginWindow(login, register, forget)
+
+        login_window.showMaximized()
+
+        def create_main():
+            main_window = MainWindow()
+
+            main_window.setMicaEffectEnabled(False)
+            main_window.setCustomBackgroundColor(QColor(242, 242, 242), QColor("#1b1919"))
+            main_window.showMaximized()
+
+        with event_loop:
+            event_loop.run_until_complete(app_close_event.wait())
+
+    except Exception as error:
+        logger.error(error)
 
 if __name__ == '__main__':
-    setTheme(Theme.DARK)
-    setThemeColor(QColor("#db2d69"))
-    app = QApplication(sys.argv)
-
-    event_loop = QEventLoop(app)
-    asyncio.set_event_loop(event_loop)
-
-    app_close_event = asyncio.Event()
-    app.aboutToQuit.connect(app_close_event.set)
-
-    login = r".\assets\login.png"
-    register = r".\assets\register.png"
-    forget = r".\assets\forget.png"
-    login_interface = LoginInterface(login, register, forget)
-
-    login_interface.showMaximized()
-
-    def create_main():
-        main_window = MainWindow()
-
-        main_window.setMicaEffectEnabled(False)
-        main_window.setCustomBackgroundColor(QColor(242, 242, 242), QColor("#1b1919"))
-        main_window.showMaximized()
-
-    with event_loop:
-        event_loop.run_until_complete(app_close_event.wait())
+    asyncio.run(main())

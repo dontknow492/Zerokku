@@ -443,67 +443,11 @@ class ForgotPasswordPage(QWidget):
         self.confirm_password_line_edit.clear()
 
 
-
-class LoginInterface(PopUpAniStackedWidget):
-    loginSignal = Signal(User)
-    def __init__(self, login_image_path: str, register_image_path: str, forget_image_path: str,
-                 session_maker: sessionmaker = None, parent = None) -> None:
-        super().__init__(parent)
-
-        self.login_page = LoginPage(login_image_path, self)
-        self.register_page = RegisterPage(register_image_path, self)
-        self.forget_password_page = ForgotPasswordPage(forget_image_path, self)
-
-        self.addWidget(self.login_page)
-        self.addWidget(self.register_page)
-        self.addWidget(self.forget_password_page)
-
-        self._signal_handler()
-        # QColor(242, 242, 242), QColor("#1b1919")
-        self.setStyleSheet("background-color:rgb(242, 242, 242);" if not isDarkTheme() else "background-color: #1b1919;")
-
-    def _signal_handler(self):
-        self.forget_password_page.updatePasswordSignal.connect(self.update_password)
-        self.forget_password_page.signUpSignal.connect(lambda: self.switchTo(1))
-
-        self.register_page.signInSignal.connect(lambda: self.switchTo(0))
-
-        self.login_page.signUpSignal.connect(lambda: self.switchTo(1))
-        self.login_page.forgetPasswordSignal.connect(lambda: self.switchTo(2))
-
-        #error
-        self.forget_password_page.errorSignal.connect(self.showMessage)
-        self.login_page.errorSignal.connect(self.showMessage)
-        self.register_page.errorSignal.connect(self.showMessage)
-
-
-
-    def update_password(self):
-        pass
-
-    def create_account(self):
-        pass
-
-    def login_to_account(self):
-        pass
-
-    def switchTo(self, index: int):
-        self.login_page.clear()
-        self.register_page.clear()
-        self.forget_password_page.clear()
-        self.setCurrentIndex(index)
-
-    def showMessage(self, title: str, content: str):
-        message_box = MessageBox(title, content, self)
-        message_box.exec()
-
-
 class LoginWindow(FramelessWindow):
     def __init__(self, login_image_path: str, register_image_path: str, forget_image_path: str,
                  session_maker: sessionmaker = None, parent=None) -> None:
         super().__init__(parent)
         self.setTitleBar(FluentTitleBar(self))
-        self.setWindowTitle("Zerokku Login")
 
         vlayout = QVBoxLayout(self)
         vlayout.setContentsMargins(0, 0, 0, 0)
