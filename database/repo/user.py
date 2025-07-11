@@ -2,7 +2,7 @@ import asyncio
 import datetime
 from typing import Optional, Any, Coroutine
 
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 
 from database import User
@@ -199,5 +199,26 @@ async def update_user(
 
     # The transaction is committed automatically by session.begin() on successful exit
     logger.success(f"User '{user.name}' (ID: {user.id}) updated successfully.")
+    return user
+
+async def verify_login_token(session: AsyncSession, user_id: int, token: str) -> Optional[User]:
+    """
+    Verifies that the given token is valid for the given user's ID.
+
+    Args:
+        session: The SQLAlchemy asynchronous session.
+        user_id: The ID of the user to update.
+        token: The login token used to skip login on next run.
+
+    Returns:
+        True if the given token is valid, False otherwise.
+    """
+    if not user_id:
+        raise ValueError("user_id must be provided to get a user.")
+
+    stmt = select(User).where(and_(User.id == user_id, User.token == token))
+    result = await session.execute(stmt)
+    user = result.scalar_one_or_none()
+
     return user
 

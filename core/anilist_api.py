@@ -18,13 +18,13 @@ from loguru import logger
 from qasync import asyncSlot
 
 from AnillistPython import (
-    AniListClient, MediaType, MediaQueryBuilder, SearchQueryBuilder, AnilistSearchResult
+    AniListClient, MediaType, MediaQueryBuilder, SearchQueryBuilder, AnilistSearchResult, AnilistMediaInfo, AnilistMedia
 )
 
-from cachetools import LRUCache
-
+from cachetools import LRUCache, LFUCache
 
 search_cache = LRUCache(maxsize=100)
+media_cache = LFUCache(maxsize=100)
 
 
 def build_search_key(
@@ -40,6 +40,7 @@ def build_search_key(
     key = f"{media_type.value}_{hash(builder)}_{hash(filters)}_{hash(query)}_{page}_{per_page}"
     # logger.debug(f"key: {key}")
     return hashlib.sha256(key.encode()).hexdigest()
+
 
 class AnilistHelper:
     TTL_RULES = {
@@ -244,6 +245,31 @@ class AnilistHelper:
 
         return result
 
+    async def get_media_info(self, media_id: int, media_type: MediaType, fields: MediaQueryBuilder)->Optional[AnilistMedia]:
+        try:
+            cache_key = f"{media_type.name}:{media_id}:{hash(fields)}"
+            if cache_key in media_cache:
+                logger.debug(f"Media cache hit: {cache_key}")
+                return media_cache[cache_key]
+
+            logger.debug(f"Media cache miss: {cache_key}")
+
+            if media_type == MediaType.ANIME:
+                result = await self.client.get_anime(media_id, fields)
+            elif media_type == MediaType.MANGA:
+                result = await self.client.get_manga(media_id, fields)
+            else:
+                return None
+
+            if result:
+                media_cache[cache_key] = result
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to get anime info: {e}")
+            return None
+
     def clear_cache(self, prefix: Optional[str] = None) -> None:
         """Clear all cache files or those matching a specific prefix."""
         try:
@@ -253,6 +279,9 @@ class AnilistHelper:
                     logger.debug(f"Deleted cache file: {file.name}")
         except Exception as e:
             logger.warning(f"Failed to clear cache: {e}")
+
+    async def close(self):
+        await self.client.close()
 
 
 async def main():
@@ -267,15 +296,17 @@ async def main():
     media_type = MediaType.MANGA
     pages = 1
 
+    # manga = await helper.
+
     # print(copy.copy(fields).included_options())
 
     # Example: Get trending anime page 1 (should cache for 1 day)
     # trending_anime = await helper.get_trending(fields, MediaType.ANIME, page=1, per_page=1)
     # print(repr(search))
     #lru cache
-    trending_anime = await helper.search(media_type, fields, search, None, pages, 1)
-    trending_2 = await helper.search(media_type, fields, search, None, pages, 1)
-    trending_3 = await helper.search(media_type, fields, search, None, pages, 1)
+    # trending_anime = await helper.search(media_type, fields, search, None, pages, 1)
+    # trending_2 = await helper.search(media_type, fields, search, None, pages, 1)
+    # trending_3 = await helper.search(media_type, fields, search, None, pages, 1)
     # print(repr(search))
 
     # key = build_search_key(media_type, fields, search, "", pages, per_page=5)

@@ -4,7 +4,7 @@ from loguru import logger
 from numpy.random.mtrand import Sequence
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, String, and_
+from sqlalchemy import select, delete, String, and_, case
 from sqlalchemy.orm import selectinload, Mapped, mapped_column, sessionmaker
 from sqlalchemy.sql import func
 from typing import List, Optional, Dict, Union, Tuple
@@ -156,7 +156,8 @@ class AsyncLibraryRepository:
                 return None
 
     async def create_category(
-            self, user_id: int, name: str, description: str = "", hidden: bool = False
+            self, user_id: int, name: str, description: str = "", hidden: bool = False, is_deletable: bool = True,
+            position: int = -1
     ) -> Optional[UserCategory]:
         """Create a new category for a user."""
         logger.info(f"Attempting to create category '{name}' for user {user_id}.")
@@ -179,6 +180,8 @@ class AsyncLibraryRepository:
                     name=name,
                     description=description,
                     hidden=hidden,
+                    is_deletable=is_deletable,
+                    position=position,
                     created_at=datetime.now(timezone.utc)
                 )
                 session.add(category)
@@ -466,9 +469,21 @@ class AsyncLibraryRepository:
                 return []
 
     async def get_all_categories(self, user_id: int) -> Sequence[UserCategory]:
-        """Retrieve all categories for a user."""
+        """Retrieve all categories for a user, sorted by position and creation date."""
         logger.info(f"Attempting to retrieve all categories for user {user_id}.")
-        query = select(UserCategory).where(UserCategory.user_id == user_id)
+
+        # Sorting priority: position (if >= 0), then created_at
+        query = (
+            select(UserCategory)
+            .where(UserCategory.user_id == user_id)
+            .order_by(
+                # Position >= 0 will sort first, -1 will sort later
+                case((UserCategory.position >= 0, 0), else_=1),
+                UserCategory.position,
+                UserCategory.created_at
+            )
+        )
+
         async with self.session_maker() as session:
             try:
                 result = await session.execute(query)

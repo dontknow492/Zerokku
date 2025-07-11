@@ -577,8 +577,9 @@ class LoginWindow(FramelessWindow):
                     pass_match = self.password_hasher.verify(hashed_password, password)
                     if pass_match:
                         self.showMessage("success", f"Log In", "Logged in successfully.")
-                        self.loginSignal.emit(user, self.login_page.isRemembered())
                         user.token = self.get_token()
+                        self.loginSignal.emit(user, self.login_page.isRemembered())
+
                         return user
                     self.showMessage("error", "Error logging in", "User does not exist.")
                     return None

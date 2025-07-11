@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncEngine, AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.schema import Table, ForeignKey, Column, CheckConstraint, UniqueConstraint, Index
 from sqlalchemy.types import String, Boolean, Integer, Text, DateTime, Date, JSON
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 
 class Base(AsyncAttrs, DeclarativeBase):
@@ -342,6 +343,8 @@ class UserCategory(Base):
     name: Mapped[str] = mapped_column(String)
     description: Mapped[str] = mapped_column(Text)
     hidden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_deletable = Column(Boolean, default=True, nullable=False)
+    position = Column(Integer, nullable=False, default=-1)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
@@ -481,6 +484,10 @@ class MediaBase:
     average_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     popularity: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     favourites: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    #liked
+    liked: Mapped[bool] = mapped_column(Boolean, default=False)
+    liked_at: Mapped[Date] = mapped_column(Date, nullable=True)
 
     
     isAdult: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -630,26 +637,30 @@ async def populate_reference_tables(session: AsyncSession, **kwargs: List[T]) ->
     try:
         async with session.begin():
             for key, instances in kwargs.items():
-                # Validate that the argument is a list
                 if not isinstance(instances, list):
                     raise ValueError(f"Argument '{key}' must be a list of model instances, got {type(instances)}")
 
-                # Validate that the list is not empty and contains valid model instances
                 if not instances:
                     logger.warning(f"Empty list provided for '{key}', skipping")
                     continue
 
-                # Check that all items in the list are of the same type (assumed to be SQLAlchemy models)
-                if not all(isinstance(item, type(instances[0])) for item in instances):
+                model_cls = type(instances[0])
+                if not all(isinstance(item, model_cls) for item in instances):
                     raise ValueError(f"All items in '{key}' must be of the same model type")
 
-                # Add all instances to the session
-                session.add_all(instances)
-                logger.debug(f"Added {len(instances)} instances for '{key}' to session")
+                # Convert model instances to dicts
+                dicts = [vars(i).copy() for i in instances]
+                for d in dicts:
+                    d.pop('_sa_instance_state', None)
+
+                # Use SQLite INSERT OR IGNORE to skip existing rows
+                stmt = sqlite_insert(model_cls).values(dicts).prefix_with("OR IGNORE")
+                await session.execute(stmt)
+
+                logger.debug(f"Inserted (or ignored) {len(instances)} records into '{key}'")
 
     except IntegrityError as e:
-        logger.error(f"Error adding {key}: {e}, skipping")
-
+        logger.error(f"Integrity error adding {key}: {e}")
     except SQLAlchemyError as e:
         logger.error(f"Database error while populating reference tables: {e}")
         raise

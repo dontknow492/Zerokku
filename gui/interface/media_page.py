@@ -14,7 +14,7 @@ from qfluentwidgets import TransparentToolButton, TransparentPushButton, FluentI
 from scipy.cluster.hierarchy import average
 
 from AnillistPython import MediaStatus, AnilistEpisode, MediaType, AnilistMedia, AnilistTag, MediaGenre, AnilistTitle, \
-    AnilistScore, AnilistMediaInfo
+    AnilistScore, AnilistMediaInfo, MediaQueryBuilder
 from database import Manga, Anime, Genre, get_index_enum, Tag
 from gui.common import MyLabel, MultiLineElideLabel, WaitingLabel, MyImageLabel, KineticScrollArea, RoundedToolButton, \
     RoundedPushButton, AniStackedWidget
@@ -308,13 +308,20 @@ class MediaPage(KineticScrollArea):
     BANNER_SIZE = None
     #signal
     requestImage = Signal(str)          # url
-    requestData = Signal(int)
+    requestData = Signal(int, MediaType, MediaQueryBuilder)
     requestRecommendation = Signal(int)
     requestEpisode = Signal(int)
     # media id
     def __init__(self, available_screen: QRect, media_type: MediaType, parent=None):
         super().__init__(parent)
 
+        self.setStyleSheet("background: transparent;")
+
+        self.field_builder = MediaQueryBuilder()
+        self.field_builder.include_title().include_genres().include_score().include_description().include_info().include_synonyms()
+        self.field_builder.include_banner_image().include_images(include_extra_large=True, include_color=True).include_tags()
+
+        self.data_requested: bool = False
         self._media_id = None
         self.media_type = media_type
         self.image_map:Dict[str, Union[WatchCard, MediaCard, WaitingLabel]] = dict()
@@ -323,7 +330,7 @@ class MediaPage(KineticScrollArea):
         self._screen_geometry = available_screen
 
 
-        self.BANNER_SIZE = QSize(self._screen_geometry.width(), int(self._screen_geometry.height() * 0.7))
+        self.BANNER_SIZE = QSize(self._screen_geometry.width(), int(self._screen_geometry.height() * 0.73))
 
         self.container = QWidget(self)
         self.container.setMaximumWidth(self._screen_geometry.width())
@@ -337,14 +344,18 @@ class MediaPage(KineticScrollArea):
         self._create_widgets()
         self._init_ui()
 
+
+
     def _create_widgets(self):
         self._body_font = getFont(14, QFont.Weight.DemiBold)
         self.banner_label = WaitingLabel(parent=self)
         self.banner_label.start()
         self.banner_label.setFixedSize(self.BANNER_SIZE)
+        self.banner_label.setObjectName("banner_label")
 
         self.cover_label = WaitingLabel(parent=self)
         self.cover_label.setFixedSize(self.COVER_SIZE)
+        self.cover_label.setObjectName("cover_label")
         self.cover_label.start()
         self.cover_label.setBorderRadius(10, 10, 10, 10)
         # self.cover_label.start()
@@ -357,8 +368,8 @@ class MediaPage(KineticScrollArea):
         self.cover_label.setGraphicsEffect(self.cover_shadow_effect)
 
         self.status_label_top = MyLabel("Unknown", parent=self)
-        self.title_label = MyLabel("Unknown title", 38, QFont.Weight.Bold, parent=self)
-        self.overview_label = MultiLineElideLabel("Unknown overview", 8,  parent=self)
+        self.title_label = MyLabel("Unknown title",  38, QFont.Weight.Bold, parent=self)
+        self.overview_label = MultiLineElideLabel("Unknown overview", 5,  parent=self)
         self.overview_label.setCursor(Qt.CursorShape.IBeamCursor)
         self.overview_label.setFont(self._body_font)
         self.duration_label = MyLabel("Duration", parent=self)
@@ -397,6 +408,8 @@ class MediaPage(KineticScrollArea):
 
         #genre
         self.genre_layout = QHBoxLayout()
+        self.genre_layout.setSpacing(0)
+        self.genre_layout.setContentsMargins(0, 0, 0, 0)
         # self.genre_layout.addWidget(self.format_label)
 
         #extra
@@ -415,9 +428,12 @@ class MediaPage(KineticScrollArea):
         margins = QMargins(50, 0, 50, 0)
 
         self.top_container = self._init_top_container_ui()
+
         self.top_container.setContentsMargins(margins)
         self.top_container.setParent(self.banner_label)
-        self.top_container.setFixedSize(self.banner_label.size())
+        height_offset = 0 #int(self._screen_geometry.height() * 0.1)
+        self.top_container.setFixedSize(self.banner_label.width(),
+                                    self.banner_label.height() - height_offset)
 
 
         self.bottom_container = QWidget(self)
@@ -431,6 +447,17 @@ class MediaPage(KineticScrollArea):
 
         self.central_widget = self._init_central_container_ui()
         self.side_bar = self._init_sidebar_ui()
+
+        #darken overlay
+        self.darken_overlay = QWidget(self.banner_label)
+        self.darken_overlay.setFixedSize(self.banner_label.size())
+
+        #
+        self.banner_label.lower()
+        self.darken_overlay.raise_()
+        self.top_container.raise_()
+        self.top_container.raise_()
+
 
     @staticmethod
     def _create_rounded_button(icon, icon_size: QSize, tooltip:str, cursor:QCursor, radius:int, min_height: int):
@@ -447,6 +474,7 @@ class MediaPage(KineticScrollArea):
         self.bottom_container_layout.addWidget(self.side_bar)
 
         self.container_layout.addWidget(self.banner_label, alignment=Qt.AlignmentFlag.AlignTop)
+        # self.container_layout.addSpacing( - int(self._screen_geometry.height() * 0.13))
         self.container_layout.addWidget(self.bottom_container)
 
 
@@ -454,13 +482,34 @@ class MediaPage(KineticScrollArea):
         if url and card:
             self.image_map[url] = card
             self.requestImage.emit(url)
+            logger.critical(f"Requested image: {url}")
 
     def on_image_downloaded(self, url: str, pixmap: QPixmap, path: Path) -> None:
-        if card:= self.image_map.pop(url):
-            if pixmap and not pixmap.isNull():
-                card.setCover(pixmap)
+        if card:= self.image_map.get(url):
+            if card is self.cover_label:
+                if pixmap and not pixmap.isNull():
+                    image = pixmap
+                else:
+                    image = path
+                card.setImage(image)
+                card.setScaledSize(self.COVER_SIZE)
+
+
+
+            elif card is self.banner_label:
+                pass
+                if pixmap and not pixmap.isNull():
+                    image = pixmap
+                    image = image.scaled(self.BANNER_SIZE, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                    image = image.copy(0, 0, self.BANNER_SIZE.width(), self.BANNER_SIZE.height())
+
+                    card.setImage(image)
             else:
-                card.setCover(path)
+                if pixmap and not pixmap.isNull():
+                    card.setCover(pixmap)
+                else:
+                    card.setCover(path)
+            self.image_map.pop(url)
 
 
     def _init_top_container_ui(self):
@@ -566,10 +615,19 @@ class MediaPage(KineticScrollArea):
         if score:
             self.setMeanScore(score.mean_score)
             self.setAverageScore(score.average_score)
+            self.setPopularity(score.popularity)
+            self.setFavorites(score.favourites)
+
+            self.setRating(score.mean_score or score.popularity or -1)
 
         self.setOverview(data.description)
-        cover_image = data.coverImage.extraLarge
-        banner_image = data.bannerImage
+        coverImage = data.coverImage
+        dominant_color = None
+        cover_image = None
+        if coverImage:
+            cover_image = coverImage.extraLarge or coverImage.large or coverImage.medium
+            dominant_color = coverImage.color
+        banner_image = data.bannerImage or cover_image
 
         self.add_download(cover_image, self.cover_label)
         self.add_download(banner_image, self.banner_label)
@@ -591,6 +649,15 @@ class MediaPage(KineticScrollArea):
         self.setSynonyms(data.synonyms)
 
         self.setTags(data.tags)
+
+        if not self.data_requested:
+            self.data_requested = True
+            self.requestData.emit(self._media_id, self.media_type, self.field_builder)
+
+        # if dominant_color:
+        #     self.setTopContainerColor(QColor(dominant_color))
+        # else:
+        self.setOverlayColor(QColor(122, 122, 122))
 
     def _parse_sql_alchemy_model(self, data: Union[Anime, Manga]):
         self.setMediaId(data.id)
@@ -619,6 +686,7 @@ class MediaPage(KineticScrollArea):
         self.setSynonyms(data.synonyms)
 
         self.setTags(data.tags)
+        self.setOverlayColor(QColor(122, 122, 122))
 
 
     def setTags(self, tags: List[Union[AnilistTag, Tag]]):
@@ -629,8 +697,8 @@ class MediaPage(KineticScrollArea):
 
 
     def _create_genres(self, genres: List[Union[MediaGenre, Genre, str]]):
-        self.genre_layout.setSpacing(0)
-        self.genre_layout.setContentsMargins(0, 0, 0, 0)
+        self._clear_genres()
+
         for genre in genres:
             if isinstance(genre, MediaGenre):
                 genre = genre.value
@@ -644,7 +712,13 @@ class MediaPage(KineticScrollArea):
 
         self.genre_layout.addStretch(1)
 
-
+    def _clear_genres(self):
+        while self.genre_layout.count():
+            item = self.genre_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
 
     def _create_tag(self, tag: Union[dict, Tag, AnilistTag]):
         # for tag in tags:
@@ -672,7 +746,7 @@ class MediaPage(KineticScrollArea):
             if not syn:
                 continue
             # num_label = MyLabel(f"{index:02d}")
-            label = MyLabel(f"{index:02d}. {syn}", parent=self)
+            label = MyLabel(f"{index:02d}:-  {syn}", parent=self)
             label.setWordWrap(True)
             label.setFont(self._body_font)
             label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -722,13 +796,13 @@ class MediaPage(KineticScrollArea):
     #     self._create_tags(tags)
 
     def setStartDate(self, start_date: datetime):
-        if start_date is None:
+        if start_date is None or isinstance(start_date, int):
             return
         date_str = start_date.strftime("%B %d, %Y")
         self.start_date_label.setText(date_str)
 
     def setEndDate(self, end_date: datetime):
-        if end_date is None:
+        if end_date is None or isinstance(end_date,int):
             end_date = datetime.today()
         date_str = end_date.strftime("%B %d, %Y")
         self.end_date_label.setText(date_str)
@@ -759,21 +833,22 @@ class MediaPage(KineticScrollArea):
         self.mean_score_label.setText(str(mean_score))
 
 
-    def setTopContainerColor(self, color: QColor):
+    def setOverlayColor(self, color: QColor):
         # Convert to HSV and modify if needed
         # Set custom alpha here
+        logger.debug(f"Setting top color to {color}")
         # color = color.darker() if isDarkTheme() else color.lighter()
+        color = QColor("#1b1919") if isDarkTheme() else QColor(242, 242, 242)
 
 
-        # r = color.red()
-        # g = color.green()
-        # b = color.blue()
-        a = 180
-        r = g = b = 0
+        r = color.red()
+        g = color.green()
+        b = color.blue()
+        a = 120
 
         print(f"rgba({r}, {g}, {b}, {a})")
 
-        self.top_container.setStyleSheet(
+        self.darken_overlay.setStyleSheet(
             f"""
             QWidget {{
                 background-color: rgba({r}, {g}, {b}, {a});
@@ -783,6 +858,7 @@ class MediaPage(KineticScrollArea):
             }}
             """
         )
+
 
         self.cover_shadow_effect.setColor(color.darker())
 
@@ -797,14 +873,14 @@ class MediaPage(KineticScrollArea):
         )
 
 
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    episode = EpisodeWidget("Naruto", MediaType.ANIME, 13)
-    episode.show()
-    app.exec()
+# if __name__ == "__main__":
+#     app = QApplication(sys.argv)
+#     episode = EpisodeWidget("Naruto", MediaType.ANIME, 13)
+#     episode.show()
+#     app.exec()
 
-if __name__ == '__main__2':
-    setTheme(Theme.DARK)
+if __name__ == '__main__':
+    # setTheme(Theme.DARK)
     media_type = MediaType.ANIME
     title = "My Dress Up Darling"
     genres = ["Slice of Life", "Ecchi", "Romance", "Comedy"]
@@ -1025,7 +1101,8 @@ if __name__ == '__main__2':
         tags=sql_tags,
         synonyms=synonyms,
     )
-
+    main_page.setBanner(banner)
     main_page.setData(anime)
+
 
     app.exec()

@@ -26,13 +26,8 @@ class RoundedPushButton(PushButton):
     ):
         super().__init__(parent)
         self.setText(text)
-        self.setIcon(icon)
-
-        font = self.font()
-        font.setPointSize(18)
-        self.setFont(font)
-
-        self.setIconSize(QSize(18, 18))
+        if icon:
+            self.setIcon(icon)
 
         self._radius = 16
         qss = self._build_style()

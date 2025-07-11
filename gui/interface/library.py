@@ -14,18 +14,19 @@ from qasync import QEventLoop, asyncSlot, asyncClose
 
 from qfluentwidgets import SearchLineEdit, PopUpAniStackedWidget, SegmentedWidget, PrimaryToolButton, \
     TransparentToggleToolButton, FluentIcon, TransparentTogglePushButton, TogglePushButton, PushButton, \
-    setCustomStyleSheet, setTheme, Theme, TeachingTip, FlyoutViewBase, ToolButton
+    setCustomStyleSheet, setTheme, Theme, TeachingTip, FlyoutViewBase, ToolButton, FlowLayout, Flyout, \
+    FlyoutAnimationType
 from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QWidget, QApplication, QButtonGroup, QPushButton, QGroupBox, \
     QGridLayout
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 
-from AnillistPython import MediaType, parse_searched_media, MediaStatus, MediaFormat, MediaSeason
+from AnillistPython import MediaType, parse_searched_media, MediaStatus, MediaFormat, MediaSeason, MediaGenre
 from core import ImageDownloader
 from database import AsyncLibraryRepository, init_db, AsyncMediaRepository, UserCategory, SortBy, SortOrder, Status, \
-    Manga, Anime
-from gui.common import EnumComboBox, MyLabel, KineticScrollArea
-from gui.components import CardContainer, MediaVariants, MediaCard, SpinCard
+    Manga, Anime, drop_all_tables
+from gui.common import EnumComboBox, MyLabel, KineticScrollArea, RoundedPushButton
+from gui.components import CardContainer, MediaVariants, MediaCard, SpinCard, CreateCategory
 # from gui.interface.media_page import screen_geometry
 from utils import IconManager
 
@@ -42,6 +43,7 @@ class LibraryNavigation(QWidget):
     variantChanged = Signal(MediaVariants)
     typeChanged = Signal(MediaType)
     group_segment_changed = Signal()
+    createCategorySignal = Signal()
     def __init__(self, variant: MediaVariants = MediaVariants.PORTRAIT,
                  media_type: MediaType = MediaType.ANIME, grouping: GroupingFlag = GroupingFlag.CATEGORY, parent=None):
         super().__init__(parent)
@@ -51,11 +53,14 @@ class LibraryNavigation(QWidget):
         self.main_layout = QHBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.button_map: Dict[TransparentTogglePushButton, Union[Enum, str, UserCategory]] = dict()
+        self.category_map: Dict[int, TransparentTogglePushButton] = dict()
 
         self.type_segment = SegmentedWidget(self)
         # self.type_segment.setContentsMargins(5, 0, 5, 0)
-        self.type_segment.addItem("anime", "Anime", lambda: self.typeChanged.emit(MediaType.ANIME), FluentIcon.MOVIE)
-        self.type_segment.addItem("manga", "Manga", lambda: self.typeChanged.emit(MediaType.MANGA), FluentIcon.ALBUM)
+        self.type_segment.addItem("anime", "Anime",
+                                  lambda: self.typeChanged.emit(MediaType.ANIME), FluentIcon.MOVIE)
+        self.type_segment.addItem("manga", "Manga",
+                                  lambda: self.typeChanged.emit(MediaType.MANGA), FluentIcon.ALBUM)
 
         if media_type == MediaType.ANIME:
             self.type_segment.setCurrentItem("anime")
@@ -64,9 +69,15 @@ class LibraryNavigation(QWidget):
 
         #segment
 
+        self.add_category_button = PushButton(FluentIcon.ADD_TO, "Create category", self)
+        self.add_category_button.clicked.connect(self.createCategorySignal.emit)
+        self.add_category_button.setFixedHeight(30)
+
         self.category_container = QWidget(self)
         self.category_layout = QHBoxLayout(self.category_container)
         self.category_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.category_layout.addWidget(self.add_category_button)
 
         self.category_button_group = QButtonGroup(self)
 
@@ -141,6 +152,7 @@ class LibraryNavigation(QWidget):
         scroll_area.setStyleSheet("background: transparent;")
         scroll_area.setFixedHeight(32)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
         container = QWidget(self)
         # container.setFixedHeight(40)
         scroll_area.setWidget(container)
@@ -164,9 +176,33 @@ class LibraryNavigation(QWidget):
 
 
     def add_category(self, category: UserCategory, selected: bool = True):
+        self.category_layout.removeWidget(self.add_category_button)
         category_button = self._create_button(category.name, selected, self.category_button_group, None)
         self.button_map[category_button] = category
+        self.category_map[category.id] = category_button
         self.category_layout.addWidget(category_button)
+
+        #reinserting at last
+        # self.add_category_button.setFixedHeight(30)
+        self.category_layout.addWidget(self.add_category_button)
+
+    def clear_categories(self):
+        for button, category in list(self.button_map.items()):
+            self.remove_category(category)
+
+    def remove_category(self, target_category: UserCategory):
+        if not isinstance(target_category, UserCategory):
+            return
+
+        button = self.category_map.get(target_category.id)
+        if not button:
+            return
+
+        self.category_layout.removeWidget(button)
+        button.deleteLater()
+        self.button_map.pop(button, None)
+        self.category_map.pop(target_category.id, None)
+
 
 
 
@@ -256,7 +292,14 @@ class ExtraFilter(FlyoutViewBase):
         self.max_duration_slider.setValue(self.duration_range[1])
         self.min_duration_slider.setValue(self.duration_range[0])
 
+        #
+        self.genre_group = QGroupBox("Genres")
+        self.genre_layout = FlowLayout(self.genre_group)
 
+        for genre in MediaGenre:
+            button = TogglePushButton(genre.name, parent = self)
+
+            self.genre_layout.addWidget(button)
 
         # Layout
 
@@ -268,6 +311,12 @@ class ExtraFilter(FlyoutViewBase):
 
         layout.addWidget(self.min_duration_slider, 3, 1, 1, 2, Qt.AlignmentFlag.AlignTop)
         layout.addWidget(self.max_duration_slider, 3, 3, 1, 2, Qt.AlignmentFlag.AlignTop)
+
+        layout.addWidget(self.genre_group, 4, 1, 1, 4, Qt.AlignmentFlag.AlignTop)
+
+        layout.setRowStretch(4, 1)
+
+        self.adjustSize()
 
 
 
@@ -293,6 +342,7 @@ class ExtraFilter(FlyoutViewBase):
 class LibraryInterface(QWidget):
     TITLE_FONT_SIZE = 20
     TITLE_FONT_WEIGHT = QFont.Weight.DemiBold
+    createSignalRequest = Signal()
     def __init__(self, async_library_repo: AsyncLibraryRepository, user_id: Optional[int] = None, parent=None):
         super().__init__(parent)
 
@@ -312,7 +362,7 @@ class LibraryInterface(QWidget):
 
 
         self.title_label = MyLabel("Library", self.TITLE_FONT_SIZE, self.TITLE_FONT_WEIGHT)
-        self.count_label = MyLabel("59", self.TITLE_FONT_SIZE, self.TITLE_FONT_WEIGHT)
+        self.count_label = MyLabel("0", self.TITLE_FONT_SIZE, self.TITLE_FONT_WEIGHT)
         self.count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
 
@@ -343,9 +393,12 @@ class LibraryInterface(QWidget):
                                            Qt.NoDropShadowWindowHint)
         # self.extra_filter_options.setFixedWidth(700)
 
-        self.extra_filter_options.setMinimumWidth(500)
+
 
         screen_geometry = QApplication.primaryScreen().availableGeometry()
+
+        self.extra_filter_options.setMinimumWidth(int(screen_geometry.width() * 0.6))
+
         x = screen_geometry.center().x() - self.extra_filter_options.width() // 2
         y = screen_geometry.center().y() - self.extra_filter_options.height() // 2
 
@@ -365,29 +418,21 @@ class LibraryInterface(QWidget):
         self._signal_handler()
 
         # asyncio.ensure_future(self._post_init())
-        if user_id is not None:
-            QTimer.singleShot(200, self._post_init)
+        # if user_id is not None:
+        QTimer.singleShot(200, self._post_init)
 
     @asyncSlot()
     async def _post_init(self):
-        categories = await self.async_library_repo.get_all_categories(self.user_id)
-        print(categories)
-        for category in categories:
-            self.library_nav.add_category(category)
-
         self.image_downloader = ImageDownloader()
         #signal
         self.image_downloader.imageDownloaded.connect(self.anime_view.on_cover_downloaded)
         self.image_downloader.imageDownloaded.connect(self.manga_view.on_cover_downloaded)
 
-        await self.update_count()
-        await self.update_filter()
+        if self.user_id:
 
-    def setUser(self, user_id):
-        if user_id == self.user_id:
-            return
-        self.user_id = user_id
-        QTimer.singleShot(200, self._post_init)
+            await self._update_library()
+
+
 
         # animes = await  self.async_library_repo.get_by_advanced_filters(MediaType.ANIME, self.user_id, limit = -1)
         #
@@ -413,6 +458,7 @@ class LibraryInterface(QWidget):
         self.library_nav.variantChanged.connect(self._switch_view)
         self.library_nav.typeChanged.connect(self._switch_type)
         self.library_nav.typeChanged.connect(self.update_count)
+        self.library_nav.createCategorySignal.connect(self.create_category)
 
         self.library_nav.group_segment_changed.connect(self.update_filter)
 
@@ -430,6 +476,9 @@ class LibraryInterface(QWidget):
         #
         self.extra_filters.clicked.connect(self.extra_filter_options.show)
 
+
+
+
     @asyncSlot(str)
     async def download_image(self, url: str):
         await self.image_downloader.fetch(url, True)
@@ -444,11 +493,29 @@ class LibraryInterface(QWidget):
         elif type == MediaType.MANGA:
             self.type_stac.setCurrentWidget(self.manga_view)
 
+    async def _update_library(self):
+        await self.update_categories()
+        await self.update_count()
+        await self.update_filter()
+
+    async def update_categories(self):
+        self.library_nav.clear_categories()
+        categories = await self.async_library_repo.get_all_categories(self.user_id)
+        for category in categories:
+            self.library_nav.add_category(category)
+
     @asyncSlot()
     async def update_count(self):
         """Update total library count based on current view type"""
         count = await self.async_library_repo.count_all_library_items(self.user_id, self.getCurrentViewType())
         self.setTotalCount(count)
+
+    def setUser(self, user_id):
+        if user_id == self.user_id:
+            return
+        self.user_id = user_id
+        QTimer.singleShot(200, self._update_library)
+
 
     def setTotalCount(self, total: int):
         self.count_label.setText(str(total))
@@ -556,6 +623,13 @@ class LibraryInterface(QWidget):
         elif isinstance(media, Anime):
             self.anime_view.add_media(media)
 
+    def create_category(self):
+        center = self.geometry().center()
+        x = center.x() - self.create_category_widget.width()//2
+        y = center.y() - self.create_category_widget.height()//2
+        self.create_category_widget.move(x, y)
+        self.create_category_widget.show()
+
 
     @asyncClose
     async def closeEvent(self, event, /):
@@ -588,7 +662,7 @@ async def main():
         # Create synchronous engine
 
     engine = create_async_engine(DATABASE_URL, echo=False)
-    # await drop_all_tables(engine)
+    await drop_all_tables(engine)
     await init_db(engine)
     session_maker = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autocommit=False,
                                  autoflush=False)

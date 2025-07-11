@@ -83,6 +83,7 @@ class FilterNavigation(QWidget):
 
         #chip view
         self.chip_container = KineticScrollArea(self)
+        self.chip_container.setStyleSheet("background: transparent;")
         self.chip_container.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         container = QWidget(self)
         container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Policy.Minimum)
@@ -153,6 +154,7 @@ class SearchBar(QWidget):
         self.format_filter.setPlaceholderText("Format")
 
         self.sort_filter = EnumComboBox(MediaSort, parent= self, add_default=False, default_text="Default")
+        self.sort_filter.setCurrentEnum(MediaSort.POPULARITY_DESC)
         # self.sort_filter.setPlaceholderText("Sort By")
 
         self.advance_filter_button = ToolButton(FluentIcon.MENU, self)
@@ -702,7 +704,8 @@ class SearchInterface(QWidget):
             logger.debug(f"Same search filters so ignoring: ")
             return
 
-        self.view_stack.remove_cards(True)
+        variant = self.view_stack.get_current_variant()
+        self.view_stack.remove_cards(variant, True, True)
 
         builder = self._build_query(options)
 
