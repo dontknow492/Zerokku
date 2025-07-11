@@ -1,15 +1,15 @@
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import sys
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QColor
+from PySide6.QtCore import Qt, Signal, QMimeData, QPoint
+from PySide6.QtGui import QFont, QColor, QDrag, QPixmap, QDropEvent, QDragMoveEvent, QDragEnterEvent, QResizeEvent
 
-from PySide6.QtWidgets import QApplication, QVBoxLayout, QGroupBox, QHBoxLayout, QGridLayout, QWidget
+from PySide6.QtWidgets import QApplication, QVBoxLayout, QGroupBox, QHBoxLayout, QGridLayout, QWidget, QScrollArea
 from qfluentwidgets import FlyoutViewBase, SwitchButton, LineEdit, TextEdit, PrimaryPushButton, PushButton, themeColor, \
-    setThemeColor, CheckBox
+    setThemeColor, CheckBox, TransparentToolButton, FluentIcon, CardWidget, Flyout
 
 from database import UserCategory
-from gui.common import AnimatedToggle, MyLabel
+from gui.common import AnimatedToggle, MyLabel, KineticScrollArea
 
 
 class CreateCategory(FlyoutViewBase):
@@ -26,7 +26,7 @@ class CreateCategory(FlyoutViewBase):
         self.cancel_button = PushButton("Cancel", self)
 
         # Title
-        title = MyLabel("Create Category", 22, weight, self)
+        self.title_label = MyLabel("Create Category", 22, weight, self)
 
         # Inputs
         self.name_line_edit = LineEdit(self)
@@ -71,7 +71,7 @@ class CreateCategory(FlyoutViewBase):
         container_layout.addLayout(toggle_layout)
 
         # Assemble view
-        self.viewLayout.addWidget(title)
+        self.viewLayout.addWidget(self.title_label)
         self.viewLayout.addWidget(container)
         self.viewLayout.addLayout(button_layout)
         self.viewLayout.addStretch()
@@ -98,10 +98,35 @@ class CreateCategory(FlyoutViewBase):
         self.show_in_shelf_button.setChecked(False)
 
 
+class EditCategory(CreateCategory):
+    def __init__(self, category: Optional[UserCategory] = None, parent=None):
+        super().__init__(parent)
+        self.category = category
 
+        self.title_label.setText("Edit Category")
+        if category:
+            self.setCategory(category)
 
+    def setCategory(self, category: UserCategory):
+        self.clear()
+        self.category = category
+        self.name_line_edit.setText(category.name)
+        self.description_line_edit.setText(category.description)
+        self.show_in_shelf_button.setChecked(not category.hidden)
 
+    def _on_ok_clicked(self):
+        name = self.name_line_edit.text().strip()
+        description = self.description_line_edit.toPlainText().strip()
+        show_in_shelf = self.show_in_shelf_button.isChecked()
 
+        if not name:
+            self.showInfoSignal.emit("error", "Validation Error", "Category name cannot be empty.")
+            return
+
+        if name == self.category.name and self.category.description == description and self.category.hidden != show_in_shelf:
+            self.showInfoSignal.emit("warning", "Input Error", "Value are same as before")
+
+        self.acceptSignal.emit(name, description, show_in_shelf)
 
 
 class AddToCategory(FlyoutViewBase):
@@ -150,6 +175,108 @@ class AddToCategory(FlyoutViewBase):
         return check_box
 
 
+class CategoryCard(CardWidget):
+    editCategory = Signal(UserCategory)
+    viewToggled = Signal(UserCategory)
+    deleteCategory = Signal(UserCategory)
+    def __init__(self, category: UserCategory, parent=None):
+        super().__init__(parent)
+        self.category = category
+        self._is_dragging = False
+
+        layout = QHBoxLayout(self)
+
+        self.drag_button = TransparentToolButton(FluentIcon.MOVE, self)
+        self.drag_button.setCursor(Qt.CursorShape.OpenHandCursor)
+
+        self.title_label = MyLabel(category.name)
+        self.edit_button = TransparentToolButton(FluentIcon.EDIT, self)
+        self.edit_button.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.view_button = TransparentToolButton(FluentIcon.VIEW, self)
+        self.view_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._update_view()
+
+        self.delete_button = TransparentToolButton(FluentIcon.DELETE, self)
+        self.delete_button.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        layout.addWidget(self.drag_button)
+        layout.addWidget(self.title_label, stretch=1)
+        layout.addWidget(self.edit_button)
+        layout.addWidget(self.view_button)
+        layout.addWidget(self.delete_button)
+
+        # Mouse press tracking
+        self.drag_button.mousePressEvent = self._drag_button_mouse_press
+        self.drag_button.mouseReleaseEvent = self._drag_button_mouse_release
+        self.drag_button.mouseMoveEvent = self._drag_button_mouse_move
+        self._drag_start_pos = QPoint()
+
+        #signal
+        self.edit_button.clicked.connect(self._on_edit_clicked)
+        self.view_button.clicked.connect(self._on_show_clicked)
+        self.delete_button.clicked.connect(lambda: self.deleteCategory.emit(self.category))
+
+    def get_id(self):
+        return self.category.id
+
+    def get_name(self):
+        return self.category.name
+
+    def get_description(self):
+        return self.category.description
+
+    def get_position(self):
+        return self.category.position
+
+    def set_position(self, position: int):
+        self.category.position = position
+
+    def get_category(self):
+        return self.category
+
+    def _on_edit_clicked(self):
+        self.editCategory.emit(self.category)
+
+    def _on_show_clicked(self):
+        self.category.hidden = not self.category.hidden
+        self._update_view()
+        self.viewToggled.emit(self.category)
+
+    def _update_view(self):
+        icon = FluentIcon.HIDE if self.category.hidden else FluentIcon.VIEW
+        self.view_button.setIcon(icon)
+
+
+
+
+
+    def _drag_button_mouse_press(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_start_pos = event.pos()
+            self.drag_button.setCursor(Qt.CursorShape.ClosedHandCursor)
+
+    def _drag_button_mouse_release(self, event):
+        self.drag_button.setCursor(Qt.CursorShape.OpenHandCursor)
+
+    def _drag_button_mouse_move(self, event):
+        if event.buttons() & Qt.LeftButton:
+            if (event.pos() - self._drag_start_pos).manhattanLength() > QApplication.startDragDistance():
+                drag = QDrag(self)
+                mime = QMimeData()
+                drag.setMimeData(mime)
+
+                # Visual
+                pixmap = QPixmap(self.size())
+                pixmap.fill(Qt.GlobalColor.transparent)
+                self.render(pixmap)
+                drag.setPixmap(pixmap)
+
+                drag.exec(Qt.MoveAction)
+
+
+
+
 
 
 if __name__ == '__main__':
@@ -164,7 +291,9 @@ if __name__ == '__main__':
         UserCategory(id=7, name="Favorites", description="Your favorite anime selections"),
     ]
     app = QApplication(sys.argv)
-    dialog = CreateCategory()
+
+    dialog = CategoryCard(categories[0])
+    # dialog = CreateCategory()
     # dialog = AddToCategory(categories)
     dialog.show()
     app.exec()

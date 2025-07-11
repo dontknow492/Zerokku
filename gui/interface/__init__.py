@@ -4,3 +4,4 @@ from .search import SearchInterface
 from .library import LibraryInterface
 from .downloads import DownloadInterface
 from .login import LoginWindow
+from .categroy import CategoriesInterface

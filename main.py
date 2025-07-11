@@ -24,7 +24,8 @@ from database import Anime, Manga, AsyncMediaRepository, AsyncLibraryRepository,
     verify_login_token, populate_reference_tables, get_all_genres, get_all_statuses, get_all_formats, get_all_seasons, \
     get_all_sources, get_all_relation_types, get_all_character_roles, UserCategory
 from gui.components import AddToCategory, CreateCategory
-from gui.interface import HomeInterface, SearchInterface, LibraryInterface, DownloadInterface, MediaPage, LoginWindow
+from gui.interface import HomeInterface, SearchInterface, LibraryInterface, DownloadInterface, MediaPage, LoginWindow,\
+    CategoriesInterface
 
 from core import AnilistHelper, ImageDownloader
 # from gui.interface.media_page import media_type
@@ -206,10 +207,7 @@ class MainWindow(MSFluentWindow):
         self.setting_interface.setObjectName("Settings Interface")
 
         self.avatar_widget = NavigationAvatarWidget(self.user.name, None, self)
-
-
-        #
-        self.page_interface = MediaPage(self._available_geometry, MediaType.ANIME, parent = self)
+        self.categories_interface = CategoriesInterface(parent = self)
 
         self._init_interface()
 
@@ -235,7 +233,7 @@ class MainWindow(MSFluentWindow):
 
 
         #adding non navi widget
-        self.stackedWidget.addWidget(self.page_interface)
+        self.stackedWidget.addWidget(self.categories_interface)
 
 
     def on_card_clicked(self, media_id: int, media_data: Union[AnilistMedia, Anime, Manga]):
@@ -599,7 +597,7 @@ async def main():
         # Step 2: Setup DB
         logger.info(f"🔌 Connecting to database: {DATABASE_URL}")
         engine = create_async_engine(DATABASE_URL, echo=False)
-        # await drop_all_tables(engine)
+        await drop_all_tables(engine)
         await init_db(engine)
 
         session_maker = sessionmaker(
